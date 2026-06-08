@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# CDK
+cdk.out/
+cdk.context.json
+*.d.ts
+# compiled JS (we run TS via ts-node; keep source-only)
+bin/**/*.js
+lib/**/*.js
+src/**/*.js
+test/**/*.js
+dist/
+
+# Secrets / local env — never commit
+.env
+.env.*
+*.p8
+
+# Logs / OS
+*.log
+.DS_Store

@@ -1,0 +1,138 @@
+# Verdancy Backend
+
+AWS CDK (TypeScript) backend for Verdancy — a subscription iOS plant ID + care app.
+See [`PRD.md`](PRD.md) for _what_ is built and [`CLAUDE.md`](CLAUDE.md) for the working rules.
+
+This repo is built in the PRD's phases (Section 7). **Current status: Phase 1 — Scaffold + Auth.**
+
+---
+
+## Phase 1 — what's in the stack
+
+A single CDK stack ([`lib/verdancy-stack.ts`](lib/verdancy-stack.ts)) defining **Amazon Cognito**:
+
+- A **user pool** (`verdancy-users`) with email/password sign-in, email verification, a strong
+  password policy (12+ chars, mixed case + digit + symbol), 1h access/ID tokens, 30-day refresh,
+  `preventUserExistenceErrors`, deletion protection, and a `RETAIN` removal policy.
+- **Native Sign in with Apple** + **Google** as federated identity providers — **opt-in** via
+  CDK context (see below). Secret material is pulled from **Secrets Manager by name**; nothing
+  secret is hardcoded or rendered into the template.
+- A **public mobile app client** (`verdancy-ios`, no client secret) wired to the enabled providers.
+
+With no Apple/Google context, the stack synths and deploys an **email-only** user pool — a valid
+configuration you can stand up immediately. Apple and Google each switch on once their full set
+of context values is supplied.
+
+## Commands
+
+```bash
+npm install
+npm run build      # tsc --noEmit type-check
+npm test           # jest (stack assertions + config-reader tests)
+npm run lint       # eslint + prettier --check
+npx cdk synth      # validate — run after every stack edit
+npx cdk diff       # review before deploy
+npx cdk deploy     # deploy to the configured account/region
+```
+
+---
+
+## What I need from you (manual work)
+
+Phase 1's acceptance criterion is _"native Apple sign-in yields a valid Cognito JWT,"_ which can
+only be verified end-to-end with **real Apple/Google credentials and a deployed stack**. None of
+this is in code; it's account setup only you can do.
+
+### 1. AWS access (required for any deploy)
+
+- The **AWS CLI is not installed on this machine** — install it and run `aws configure` with an
+  IAM user/role that can deploy CloudFormation, Cognito, Secrets Manager, IAM.
+- Bootstrap the target account/region once: `npx cdk bootstrap aws://<ACCOUNT_ID>/<REGION>`.
+- Pick the region (the PRD assumes one region). Set `CDK_DEFAULT_ACCOUNT` / `CDK_DEFAULT_REGION`
+  or rely on your configured AWS profile.
+
+> You can deploy the **email-only** pool with just the above — no Apple/Google needed yet.
+
+### 2. Apple — Sign in with Apple (for the Apple IdP)
+
+From the [Apple Developer](https://developer.apple.com) account:
+
+1. **App ID** for the iOS app with _Sign in with Apple_ capability enabled.
+2. A **Services ID** (e.g. `com.verdancy.signin`) — this is the Cognito **`clientId`**.
+3. A **Sign in with Apple Key** → download the **`.p8`** file; note its **Key ID** and your **Team ID**.
+4. After deploy, add the Cognito callback to the Services ID's _Return URLs_:
+   `https://<domainPrefix>.auth.<region>.amazoncognito.com/oauth2/idpresponse`.
+
+### 3. Google — OAuth client (for the Google IdP)
+
+From the [Google Cloud Console](https://console.cloud.google.com) → APIs & Services → Credentials:
+
+1. Create an **OAuth 2.0 Client ID** (type **Web application**) → note the **client ID** + **client secret**.
+2. Add the same authorized redirect URI:
+   `https://<domainPrefix>.auth.<region>.amazoncognito.com/oauth2/idpresponse`.
+
+### 4. Store the two secrets in Secrets Manager (by name)
+
+The stack references these **by name** — create them before deploying with federation enabled:
+
+```bash
+# Apple .p8 private key contents (the whole file, including BEGIN/END lines)
+aws secretsmanager create-secret --name verdancy/apple-signin-key \
+  --secret-string file://AuthKey_XXXXXXXXXX.p8
+
+# Google OAuth client secret
+aws secretsmanager create-secret --name verdancy/google-oauth-secret \
+  --secret-string 'GOCSPX-...'
+```
+
+### 5. Deploy with federation enabled
+
+Pass the non-secret IDs as CDK context (put them in a gitignored `cdk.context.json` or on the CLI).
+`cognito:domainPrefix` must be **globally unique**:
+
+```bash
+npx cdk deploy \
+  -c apple:servicesId=com.verdancy.signin \
+  -c apple:teamId=ABCDE12345 \
+  -c apple:keyId=KEY1234567 \
+  -c apple:privateKeySecretName=verdancy/apple-signin-key \
+  -c google:clientId=...apps.googleusercontent.com \
+  -c google:clientSecretName=verdancy/google-oauth-secret \
+  -c cognito:domainPrefix=verdancy-auth-prod \
+  -c cognito:callbackUrls=verdancy://auth/callback \
+  -c cognito:logoutUrls=verdancy://auth/logout
+```
+
+The stack outputs `UserPoolId`, `UserPoolClientId`, `Region`, `CognitoDomainBaseUrl`, and the
+enabled providers — hand these to the iOS app and RevenueCat config.
+
+> **Tell me your chosen region, `domainPrefix`, the Apple Services ID / Team ID / Key ID, and the
+> Google client ID** (not the secrets — those go in Secrets Manager) and I can bake them into a
+> `cdk.context.json` so deploys are a single `npx cdk deploy`.
+
+### A note on the iOS side
+
+The Apple/Google credentials above also need to be configured **in the iOS app** (native
+`ASAuthorizationController` flow), which lives in a separate repo / iOS PRD. The backend's job is
+to make Cognito accept those federated identities and mint a JWT — that's what Phase 1 delivers.
+
+---
+
+## Configuration reference
+
+All federation config is read from CDK context in [`lib/config.ts`](lib/config.ts):
+
+| Context key                  | Required    | Notes                                               |
+| ---------------------------- | ----------- | --------------------------------------------------- |
+| `apple:servicesId`           | Apple only  | Services ID = Apple "client id"                     |
+| `apple:teamId`               | Apple only  | Apple Developer Team ID                             |
+| `apple:keyId`                | Apple only  | Key ID of the `.p8`                                 |
+| `apple:privateKeySecretName` | Apple only  | Secrets Manager secret _name_ for the `.p8`         |
+| `google:clientId`            | Google only | Google OAuth client ID                              |
+| `google:clientSecretName`    | Google only | Secrets Manager secret _name_ for the client secret |
+| `cognito:domainPrefix`       | if any IdP  | Globally-unique Cognito hosted-domain prefix        |
+| `cognito:callbackUrls`       | optional    | Comma-separated; default `verdancy://auth/callback` |
+| `cognito:logoutUrls`         | optional    | Comma-separated; default `verdancy://auth/logout`   |
+
+Apple is all-or-nothing (all four keys or none); Google is both keys or neither; a domain prefix
+is required whenever either provider is enabled.
