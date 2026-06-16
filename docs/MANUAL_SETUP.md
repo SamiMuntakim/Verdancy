@@ -195,6 +195,36 @@ the `.p8` contents or the Google secret** — those live only in Secrets Manager
 
 ---
 
+# PHASE 3 — runtime secrets & RevenueCat (after you deploy Phase 3)
+
+Phase 3 adds the AI proxy and the entitlement webhook. Two manual steps make them work; the stack
+deploys fine without them (the routes just return errors until the secrets exist).
+
+### C1. Gemini API key
+
+1. Get an API key from Google AI Studio (<https://aistudio.google.com/apikey>).
+2. Store it (same region) — the router reads it by this name:
+   ```
+   aws secretsmanager create-secret --name verdancy/gemini-api-key --secret-string "YOUR_GEMINI_KEY" --region us-west-1
+   ```
+   `/identify` and `/diagnose` work once this exists.
+
+### C2. RevenueCat webhook
+
+CDK generates the shared secret; read it and configure RevenueCat to match:
+
+```
+aws secretsmanager get-secret-value --secret-id verdancy/revenuecat-webhook-secret --query SecretString --output text --region us-west-1
+```
+
+In the RevenueCat dashboard → project → Integrations → Webhooks:
+
+- **URL**: `<HttpApiUrl>/webhooks/revenuecat` (from the deploy outputs)
+- **Authorization header**: paste the secret value from the command above
+- Set the app's **`appUserID` to the Cognito `sub`** so events map to the right user.
+
+---
+
 ## Value cheat-sheet (Stage B)
 
 | You collect   | From                         | Used as                               |

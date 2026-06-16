@@ -6,6 +6,7 @@ import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
+import * as iam from 'aws-cdk-lib/aws-iam';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import { HttpApi, HttpMethod, HttpNoneAuthorizer } from 'aws-cdk-lib/aws-apigatewayv2';
 import { HttpUserPoolAuthorizer } from 'aws-cdk-lib/aws-apigatewayv2-authorizers';
@@ -30,10 +31,12 @@ export interface VerdancyStackProps extends cdk.StackProps {
  *
  * Phase 1: Amazon Cognito user pool (native Sign in with Apple + Google + email)
  *   and the app client the iOS app uses.
- * Phase 2 (current): DynamoDB single table, private S3 image bucket, the HTTP API
- *   with a Cognito JWT authorizer on every route except the secret-verified
- *   RevenueCat webhook, and the router + webhook Lambdas (501 shells for now).
- * Phase 3 fills in the handler logic.
+ * Phase 2: DynamoDB single table, private S3 image bucket, the HTTP API with a
+ *   Cognito JWT authorizer on every route except the secret-verified RevenueCat
+ *   webhook, and the router + webhook Lambdas.
+ * Phase 3 (current): the handler logic — Gemini proxy with entitlement+quota,
+ *   presigned uploads, CRUD with S3 cascade, milestones, and the webhook — plus
+ *   the least-privilege IAM grants those need.
  */
 export class VerdancyStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: VerdancyStackProps) {
@@ -230,10 +233,20 @@ export class VerdancyStack extends cdk.Stack {
       removalPolicy: retain ? RemovalPolicy.RETAIN : RemovalPolicy.DESTROY,
     });
 
+    // The Gemini API key lives in Secrets Manager; the user creates/populates it
+    // (it's an external key from Google AI Studio). Referenced by name so the
+    // stack synths/deploys before the secret exists; /identify works once it does.
+    const GEMINI_SECRET_NAME = 'verdancy/gemini-api-key';
+    const geminiSecret = secretsmanager.Secret.fromSecretNameV2(
+      this,
+      'GeminiApiKey',
+      GEMINI_SECRET_NAME,
+    );
+
     // ---------------------------------------------------------------------
-    // Lambdas — Node.js 20.x, arm64. Phase 2 ships 501 shells; IAM grants for
-    // the table/bucket land in Phase 3 when the router actually uses them
-    // (least privilege). The webhook only needs to read its secret.
+    // Lambdas — Node.js 20.x, arm64. The Node 20 runtime provides the core
+    // @aws-sdk client packages (kept external); @google/genai and
+    // s3-request-presigner are bundled so they're guaranteed present.
     // ---------------------------------------------------------------------
     const handlersDir = path.join(__dirname, '..', 'src', 'handlers');
     const commonFnProps = {
@@ -241,8 +254,12 @@ export class VerdancyStack extends cdk.Stack {
       architecture: lambda.Architecture.ARM_64,
       handler: 'handler',
       bundling: {
-        // AWS SDK v3 is provided by the Node 20 runtime — don't bundle it.
-        externalModules: ['@aws-sdk/*'],
+        externalModules: [
+          '@aws-sdk/client-dynamodb',
+          '@aws-sdk/lib-dynamodb',
+          '@aws-sdk/client-s3',
+          '@aws-sdk/client-secrets-manager',
+        ],
         minify: true,
         sourceMap: true,
         target: 'node20',
@@ -258,8 +275,22 @@ export class VerdancyStack extends cdk.Stack {
       environment: {
         TABLE_NAME: table.tableName,
         USER_IMAGE_BUCKET: imageBucket.bucketName,
+        GEMINI_API_KEY_SECRET_NAME: GEMINI_SECRET_NAME,
+        IDENTIFY_MODEL_ID: 'gemini-3.5-flash',
+        DIAGNOSE_MODEL_ID: 'gemini-3.5-flash',
+        FREE_AI_LIFETIME_LIMIT: '5',
+        SUBSCRIBER_DAILY_AI_LIMIT: '50',
       },
     });
+    // Least privilege: the table, the image-bucket objects, and the Gemini key.
+    table.grantReadWriteData(routerFn);
+    geminiSecret.grantRead(routerFn);
+    routerFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['s3:GetObject', 's3:PutObject', 's3:DeleteObject'],
+        resources: [imageBucket.arnForObjects('*')],
+      }),
+    );
 
     const webhookFn = new NodejsFunction(this, 'WebhookFn', {
       ...commonFnProps,
@@ -268,10 +299,13 @@ export class VerdancyStack extends cdk.Stack {
       memorySize: 256,
       timeout: Duration.seconds(15),
       environment: {
+        TABLE_NAME: table.tableName,
         REVENUECAT_WEBHOOK_SECRET_ARN: webhookSecret.secretArn,
       },
     });
+    // Least privilege: read the webhook secret; only UpdateItem on the table.
     webhookSecret.grantRead(webhookFn);
+    table.grant(webhookFn, 'dynamodb:UpdateItem');
 
     // ---------------------------------------------------------------------
     // HTTP API — Cognito JWT authorizer on every route EXCEPT the webhook.
