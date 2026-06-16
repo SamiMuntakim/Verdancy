@@ -6,6 +6,9 @@ import { readAuthConfig } from '../lib/config';
 
 const app = new cdk.App();
 
+const retainContext = app.node.tryGetContext('retainResources');
+const retainResources = retainContext === true || retainContext === 'true';
+
 new VerdancyStack(app, 'VerdancyStack', {
   env: {
     account: process.env.CDK_DEFAULT_ACCOUNT,
@@ -13,6 +16,7 @@ new VerdancyStack(app, 'VerdancyStack', {
   },
   description: 'Verdancy backend — Phase 1: Cognito (Sign in with Apple + Google + email).',
   auth: readAuthConfig(app),
+  retainResources,
 });
 
 app.synth();

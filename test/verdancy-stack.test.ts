@@ -8,11 +8,12 @@ const baseAuth: AuthConfig = {
   logoutUrls: ['verdancy://auth/logout'],
 };
 
-function synth(auth: AuthConfig): Template {
+function synth(auth: AuthConfig, retainResources = false): Template {
   const app = new cdk.App();
   const stack = new VerdancyStack(app, 'TestStack', {
     env: { account: '123456789012', region: 'us-east-1' },
     auth,
+    retainResources,
   });
   return Template.fromStack(stack);
 }
@@ -45,9 +46,21 @@ describe('Cognito user pool (security baseline)', () => {
     });
   });
 
-  test('user pool is retained on stack delete', () => {
-    template.hasResource('AWS::Cognito::UserPool', {
-      DeletionPolicy: 'Retain',
+  test('user pool is destroyable by default (dev posture)', () => {
+    template.hasResource('AWS::Cognito::UserPool', { DeletionPolicy: 'Delete' });
+    template.hasResourceProperties('AWS::Cognito::UserPool', {
+      DeletionProtection: 'INACTIVE',
+    });
+  });
+});
+
+describe('Production retention (retainResources=true)', () => {
+  const template = synth(baseAuth, true);
+
+  test('retains and deletion-protects the user pool', () => {
+    template.hasResource('AWS::Cognito::UserPool', { DeletionPolicy: 'Retain' });
+    template.hasResourceProperties('AWS::Cognito::UserPool', {
+      DeletionProtection: 'ACTIVE',
     });
   });
 });
@@ -94,6 +107,17 @@ describe('Email-only configuration (no federation)', () => {
       SupportedIdentityProviders: ['COGNITO'],
     });
   });
+
+  // Regression guard: a client flagged OAuth-enabled with zero flows is rejected
+  // by Cognito at deploy ("AllowedOAuthFlows and AllowedOAuthScopes are required").
+  // Email-only must disable OAuth entirely.
+  test('disables hosted-UI OAuth entirely', () => {
+    template.hasResourceProperties('AWS::Cognito::UserPoolClient', {
+      AllowedOAuthFlowsUserPoolClient: false,
+      AllowedOAuthFlows: Match.absent(),
+      AllowedOAuthScopes: Match.absent(),
+    });
+  });
 });
 
 describe('Federation enabled (Apple + Google)', () => {
@@ -131,11 +155,13 @@ describe('Federation enabled (Apple + Google)', () => {
     });
   });
 
-  test('app client supports Cognito, Apple, and Google', () => {
+  test('app client supports Cognito, Apple, and Google with the auth-code flow', () => {
     template.hasResourceProperties('AWS::Cognito::UserPoolClient', {
       SupportedIdentityProviders: Match.arrayWith(['COGNITO', 'SignInWithApple', 'Google']),
       CallbackURLs: ['verdancy://auth/callback'],
+      AllowedOAuthFlowsUserPoolClient: true,
       AllowedOAuthFlows: ['code'],
+      AllowedOAuthScopes: Match.arrayWith(['openid', 'email', 'profile']),
     });
   });
 
