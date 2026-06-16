@@ -30,6 +30,9 @@ import { identify, diagnose } from '../lib/gemini';
 
 const FREE_AI_LIFETIME_LIMIT = () => intEnv('FREE_AI_LIFETIME_LIMIT', 5);
 const SUBSCRIBER_DAILY_AI_LIMIT = () => intEnv('SUBSCRIBER_DAILY_AI_LIMIT', 50);
+// Defense-in-depth on cost: the app resizes to ~1MP (~250KB) before sending, so
+// anything past ~5MB of base64 is rejected before we reserve quota or call Gemini.
+const MAX_IMAGE_BASE64_CHARS = 7_000_000;
 
 const asString = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
 const numOrNull = (v: unknown): number | null =>
@@ -91,23 +94,25 @@ async function handleUploads(sub: string, event: APIGatewayProxyEventV2WithJWTAu
   return json(200, { image_ref: imageRef, upload_url: uploadUrl, plantId });
 }
 
-async function handleIdentify(sub: string, event: APIGatewayProxyEventV2WithJWTAuthorizer) {
+// Shared AI-proxy flow: validate the image, reserve quota BEFORE Gemini, then run.
+async function aiProxy(
+  sub: string,
+  event: APIGatewayProxyEventV2WithJWTAuthorizer,
+  run: (image: string) => Promise<unknown>,
+) {
   const body = parseJsonBody<{ image?: string }>(event);
   const image = asString(body.image);
   if (!image) throw new ApiError(400, 'Missing image');
-  await reserveAiQuota(sub); // reserve BEFORE Gemini
-  const result = await identify(image); // image forwarded then discarded
-  return json(200, result);
+  if (image.length > MAX_IMAGE_BASE64_CHARS) throw new ApiError(400, 'Image too large');
+  await reserveAiQuota(sub); // reserve BEFORE Gemini; image forwarded then discarded
+  return json(200, await run(image));
 }
 
-async function handleDiagnose(sub: string, event: APIGatewayProxyEventV2WithJWTAuthorizer) {
-  const body = parseJsonBody<{ image?: string }>(event);
-  const image = asString(body.image);
-  if (!image) throw new ApiError(400, 'Missing image');
-  await reserveAiQuota(sub);
-  const result = await diagnose(image);
-  return json(200, result);
-}
+const handleIdentify = (sub: string, event: APIGatewayProxyEventV2WithJWTAuthorizer) =>
+  aiProxy(sub, event, identify);
+
+const handleDiagnose = (sub: string, event: APIGatewayProxyEventV2WithJWTAuthorizer) =>
+  aiProxy(sub, event, diagnose);
 
 async function handleCreatePlant(sub: string, event: APIGatewayProxyEventV2WithJWTAuthorizer) {
   const body = parseJsonBody<Record<string, unknown>>(event);

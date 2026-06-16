@@ -228,6 +228,16 @@ describe('AI proxy — reserve quota BEFORE Gemini (invariant #3)', () => {
     expect(identifyMock).not.toHaveBeenCalled();
   });
 
+  test('oversized image → 400 before any quota reserve or Gemini call', async () => {
+    const res = await run({
+      routeKey: 'POST /identify',
+      body: { image: 'a'.repeat(7_000_001) },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(identifyMock).not.toHaveBeenCalled();
+    expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(0);
+  });
+
   test('non-subscriber under free limit → 200, Gemini called', async () => {
     ddbMock.on(GetCommand).resolves({ Item: { entitlement_active: false, free_ai_used: 0 } });
     ddbMock.on(UpdateCommand).resolves({});
