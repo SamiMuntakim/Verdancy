@@ -126,8 +126,16 @@ it prints **Outputs**:
 - `Region`
 - `EnabledIdentityProviders` (will say `COGNITO` only, i.e. email — correct for Stage A)
 
-**That's a live auth backend.** 🎉 Tell me when you're here and I'll give you a tiny script to create
-a test user and confirm it mints a real JWT.
+**That's a live auth backend.** 🎉 Confirm it mints a real JWT (SRP flow, same as the app will use):
+
+```
+# create a confirmed test user (uses your AWS CLI creds; replace POOL_ID/region)
+aws cognito-idp admin-create-user --user-pool-id POOL_ID --username smoketest@verdancy.test --message-action SUPPRESS --user-attributes Name=email,Value=smoketest@verdancy.test Name=email_verified,Value=true --region us-east-1
+aws cognito-idp admin-set-user-password --user-pool-id POOL_ID --username smoketest@verdancy.test --password "TestPass123!@#" --permanent --region us-east-1
+
+# authenticate and print the JWT claims (replace POOL_ID / CLIENT_ID)
+node scripts/smoke-auth.mjs POOL_ID CLIENT_ID smoketest@verdancy.test "TestPass123!@#"
+```
 
 > Costs so far: effectively $0 (Free Tier). In dev the pool is **destroyable**, so `npx cdk destroy`
 > cleans everything up (and a failed deploy rolls back without orphaning anything). Before you have

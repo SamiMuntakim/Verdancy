@@ -19,6 +19,7 @@
   "devDependencies": {
     "@types/jest": "^29.5.12",
     "@types/node": "^20.14.0",
+    "amazon-cognito-identity-js": "^6.3.16",
     "aws-cdk": "^2.160.0",
     "eslint": "^9.9.0",
     "jest": "^29.7.0",
