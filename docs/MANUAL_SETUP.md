@@ -15,7 +15,7 @@ redeploy. So get Stage A working today; tackle Stage B when you're closer to the
 
 **Decisions already made for you:**
 
-- **Region:** `us-east-1` (US East / N. Virginia). Use it everywhere.
+- **Region:** `us-west-1` (US East / N. Virginia). Use it everywhere.
 - **IAM user name:** `verdancy-deploy`.
 - Stage A needs **no domain prefix and no Apple/Google** — those are Stage B only.
 
@@ -51,7 +51,7 @@ redeploy. So get Stage A working today; tackle Stage B when you're closer to the
 
 ## A3. Set the console region (~30 sec)
 
-Top-right of the console, click the region selector and choose **US East (N. Virginia) us-east-1**.
+Top-right of the console, click the region selector and choose **US East (N. Virginia) us-west-1**.
 This makes the console show the same region we deploy to.
 
 ## A4. Create the deploy user `verdancy-deploy` (~5 min)
@@ -91,7 +91,7 @@ Enter, when prompted:
 
 - **AWS Access Key ID** → from the .csv in A4
 - **AWS Secret Access Key** → from the .csv in A4
-- **Default region name** → `us-east-1`
+- **Default region name** → `us-west-1`
 - **Default output format** → `json`
 
 Verify it worked:
@@ -107,7 +107,7 @@ This prints your account info. **Copy the 12-digit `Account` number** — call i
 From the project folder `C:\Users\Sami\Documents\GitHub\Verdancy`, run (substitute your `ACCOUNT_ID`):
 
 ```
-npx cdk bootstrap aws://ACCOUNT_ID/us-east-1
+npx cdk bootstrap aws://ACCOUNT_ID/us-west-1
 ```
 
 This creates a small CDK support stack in your account. Takes a minute or two.
@@ -130,8 +130,8 @@ it prints **Outputs**:
 
 ```
 # create a confirmed test user (uses your AWS CLI creds; replace POOL_ID/region)
-aws cognito-idp admin-create-user --user-pool-id POOL_ID --username smoketest@verdancy.test --message-action SUPPRESS --user-attributes Name=email,Value=smoketest@verdancy.test Name=email_verified,Value=true --region us-east-1
-aws cognito-idp admin-set-user-password --user-pool-id POOL_ID --username smoketest@verdancy.test --password "TestPass123!@#" --permanent --region us-east-1
+aws cognito-idp admin-create-user --user-pool-id POOL_ID --username smoketest@verdancy.test --message-action SUPPRESS --user-attributes Name=email,Value=smoketest@verdancy.test Name=email_verified,Value=true --region us-west-1
+aws cognito-idp admin-set-user-password --user-pool-id POOL_ID --username smoketest@verdancy.test --password "TestPass123!@#" --permanent --region us-west-1
 
 # authenticate and print the JWT claims (replace POOL_ID / CLIENT_ID)
 node scripts/smoke-auth.mjs POOL_ID CLIENT_ID smoketest@verdancy.test "TestPass123!@#"
@@ -154,7 +154,7 @@ Do this when you're ready to wire real social login (often alongside iOS app wor
 
 When you reach Stage B, we'll first pick a **globally-unique Cognito domain prefix** together
 (e.g. `verdancy-auth-prod`); your federation redirect URL becomes
-`https://PREFIX.auth.us-east-1.amazoncognito.com/oauth2/idpresponse`.
+`https://PREFIX.auth.us-west-1.amazoncognito.com/oauth2/idpresponse`.
 
 ### B1. Apple (at developer.apple.com/account → Certificates, Identifiers & Profiles)
 
@@ -164,8 +164,8 @@ When you reach Stage B, we'll first pick a **globally-unique Cognito domain pref
 - **Services ID:** Identifiers → (+) → Services IDs. Identifier `com.verdancy.signin` →
   `apple:servicesId`. Register, open it, tick **Sign In with Apple → Configure**:
   - Primary App ID: `com.verdancy.app`
-  - Domains and Subdomains: `PREFIX.auth.us-east-1.amazoncognito.com` (**no `https://`**)
-  - Return URLs: `https://PREFIX.auth.us-east-1.amazoncognito.com/oauth2/idpresponse`
+  - Domains and Subdomains: `PREFIX.auth.us-west-1.amazoncognito.com` (**no `https://`**)
+  - Return URLs: `https://PREFIX.auth.us-west-1.amazoncognito.com/oauth2/idpresponse`
   - (No domain-verification file needed — that's for a flow Cognito doesn't use.)
 - **Key (.p8):** Keys → (+), enable Sign in with Apple, set Primary App ID, Register, **download the
   `.p8` (one time only)**, note the **Key ID** → `apple:keyId`.
@@ -175,16 +175,16 @@ When you reach Stage B, we'll first pick a **globally-unique Cognito domain pref
 - Create a project. **APIs & Services → OAuth consent screen → External**, fill app name/emails, add
   yourself as a Test user (publish before public launch).
 - **Credentials → Create Credentials → OAuth client ID → Web application**:
-  - Authorized JavaScript origins: `https://PREFIX.auth.us-east-1.amazoncognito.com`
-  - Authorized redirect URIs: `https://PREFIX.auth.us-east-1.amazoncognito.com/oauth2/idpresponse`
+  - Authorized JavaScript origins: `https://PREFIX.auth.us-west-1.amazoncognito.com`
+  - Authorized redirect URIs: `https://PREFIX.auth.us-west-1.amazoncognito.com/oauth2/idpresponse`
   - Copy **Client ID** (`…apps.googleusercontent.com` → `google:clientId`) and **Client secret**
     (`GOCSPX-…`).
 
 ### B3. Store the two secrets (same region!)
 
 ```
-aws secretsmanager create-secret --name verdancy/apple-signin-key  --secret-string file://C:\path\to\AuthKey_KEY1234567.p8 --region us-east-1
-aws secretsmanager create-secret --name verdancy/google-oauth-secret --secret-string "GOCSPX-your-secret" --region us-east-1
+aws secretsmanager create-secret --name verdancy/apple-signin-key  --secret-string file://C:\path\to\AuthKey_KEY1234567.p8 --region us-west-1
+aws secretsmanager create-secret --name verdancy/google-oauth-secret --secret-string "GOCSPX-your-secret" --region us-west-1
 ```
 
 ### B4. Send me the non-secret values

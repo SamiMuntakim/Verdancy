@@ -1,6 +1,15 @@
+import * as path from 'node:path';
 import * as cdk from 'aws-cdk-lib';
 import { Duration, RemovalPolicy, SecretValue } from 'aws-cdk-lib';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
+import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
+import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as lambda from 'aws-cdk-lib/aws-lambda';
+import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
+import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
+import { HttpApi, HttpMethod, HttpNoneAuthorizer } from 'aws-cdk-lib/aws-apigatewayv2';
+import { HttpUserPoolAuthorizer } from 'aws-cdk-lib/aws-apigatewayv2-authorizers';
+import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations';
 import type { Construct } from 'constructs';
 import type { AuthConfig } from './config';
 
@@ -19,9 +28,12 @@ export interface VerdancyStackProps extends cdk.StackProps {
 /**
  * The single Verdancy backend stack.
  *
- * Phase 1 (current): Amazon Cognito user pool with native Sign in with Apple
- * (federated) + Google + email/password, plus the app client the iOS app uses.
- * DynamoDB, S3, the HTTP API, and the Lambdas arrive in later phases.
+ * Phase 1: Amazon Cognito user pool (native Sign in with Apple + Google + email)
+ *   and the app client the iOS app uses.
+ * Phase 2 (current): DynamoDB single table, private S3 image bucket, the HTTP API
+ *   with a Cognito JWT authorizer on every route except the secret-verified
+ *   RevenueCat webhook, and the router + webhook Lambdas (501 shells for now).
+ * Phase 3 fills in the handler logic.
  */
 export class VerdancyStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: VerdancyStackProps) {
@@ -159,6 +171,152 @@ export class VerdancyStack extends cdk.Stack {
       client.node.addDependency(idp);
     }
 
+    // =====================================================================
+    // Phase 2 — Data + storage + API shells
+    // =====================================================================
+
+    // ---------------------------------------------------------------------
+    // DynamoDB — single table `VerdancyData`, on-demand, NO GSIs. TTL on
+    // `expires_at` drives the daily-quota item's auto-expiry.
+    // ---------------------------------------------------------------------
+    const table = new dynamodb.Table(this, 'DataTable', {
+      tableName: 'VerdancyData',
+      partitionKey: { name: 'PK', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'SK', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      timeToLiveAttribute: 'expires_at',
+      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
+      deletionProtection: retain,
+      removalPolicy: retain ? RemovalPolicy.RETAIN : RemovalPolicy.DESTROY,
+    });
+
+    // ---------------------------------------------------------------------
+    // S3 — one private bucket for user images. Block Public Access ON, TLS
+    // enforced via bucket policy, accessed only through presigned URLs.
+    // Bytes never pass through Lambda (hard invariant #6). Intelligent-Tiering
+    // keeps cold-object cost down.
+    // ---------------------------------------------------------------------
+    const imageBucket = new s3.Bucket(this, 'UserImages', {
+      bucketName: `verdancy-user-images-${this.account}-${this.region}`,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      enforceSSL: true,
+      versioned: false,
+      lifecycleRules: [
+        {
+          id: 'intelligent-tiering',
+          transitions: [
+            {
+              storageClass: s3.StorageClass.INTELLIGENT_TIERING,
+              transitionAfter: Duration.days(0),
+            },
+          ],
+        },
+      ],
+      autoDeleteObjects: !retain,
+      removalPolicy: retain ? RemovalPolicy.RETAIN : RemovalPolicy.DESTROY,
+    });
+
+    // ---------------------------------------------------------------------
+    // Secrets — the RevenueCat shared webhook secret. CDK generates the value;
+    // fetch it after deploy and paste the same value into the RevenueCat
+    // dashboard. (Gemini key arrives in Phase 3.)
+    // ---------------------------------------------------------------------
+    const webhookSecret = new secretsmanager.Secret(this, 'RevenueCatWebhookSecret', {
+      secretName: 'verdancy/revenuecat-webhook-secret',
+      description:
+        'Shared secret RevenueCat sends in the Authorization header; also set this in RevenueCat.',
+      generateSecretString: { passwordLength: 40, excludePunctuation: true },
+      removalPolicy: retain ? RemovalPolicy.RETAIN : RemovalPolicy.DESTROY,
+    });
+
+    // ---------------------------------------------------------------------
+    // Lambdas — Node.js 20.x, arm64. Phase 2 ships 501 shells; IAM grants for
+    // the table/bucket land in Phase 3 when the router actually uses them
+    // (least privilege). The webhook only needs to read its secret.
+    // ---------------------------------------------------------------------
+    const handlersDir = path.join(__dirname, '..', 'src', 'handlers');
+    const commonFnProps = {
+      runtime: lambda.Runtime.NODEJS_20_X,
+      architecture: lambda.Architecture.ARM_64,
+      handler: 'handler',
+      bundling: {
+        // AWS SDK v3 is provided by the Node 20 runtime — don't bundle it.
+        externalModules: ['@aws-sdk/*'],
+        minify: true,
+        sourceMap: true,
+        target: 'node20',
+      },
+    };
+
+    const routerFn = new NodejsFunction(this, 'RouterFn', {
+      ...commonFnProps,
+      functionName: 'verdancy-router',
+      entry: path.join(handlersDir, 'router.ts'),
+      memorySize: 512,
+      timeout: Duration.seconds(29),
+      environment: {
+        TABLE_NAME: table.tableName,
+        USER_IMAGE_BUCKET: imageBucket.bucketName,
+      },
+    });
+
+    const webhookFn = new NodejsFunction(this, 'WebhookFn', {
+      ...commonFnProps,
+      functionName: 'verdancy-revenuecat-webhook',
+      entry: path.join(handlersDir, 'webhook.ts'),
+      memorySize: 256,
+      timeout: Duration.seconds(15),
+      environment: {
+        REVENUECAT_WEBHOOK_SECRET_ARN: webhookSecret.secretArn,
+      },
+    });
+    webhookSecret.grantRead(webhookFn);
+
+    // ---------------------------------------------------------------------
+    // HTTP API — Cognito JWT authorizer on every route EXCEPT the webhook.
+    // ---------------------------------------------------------------------
+    const httpApi = new HttpApi(this, 'HttpApi', {
+      apiName: 'verdancy-api',
+      description: 'Verdancy HTTP API. JWT-authorized except POST /webhooks/revenuecat.',
+    });
+
+    const jwtAuthorizer = new HttpUserPoolAuthorizer('JwtAuthorizer', userPool, {
+      userPoolClients: [client],
+    });
+    const routerIntegration = new HttpLambdaIntegration('RouterIntegration', routerFn);
+    const webhookIntegration = new HttpLambdaIntegration('WebhookIntegration', webhookFn);
+
+    const jwtRoutes: ReadonlyArray<{ path: string; methods: HttpMethod[] }> = [
+      { path: '/users', methods: [HttpMethod.POST] },
+      { path: '/uploads', methods: [HttpMethod.POST] },
+      { path: '/identify', methods: [HttpMethod.POST] },
+      { path: '/diagnose', methods: [HttpMethod.POST] },
+      { path: '/plants', methods: [HttpMethod.POST, HttpMethod.GET] },
+      { path: '/plants/{plantId}/care', methods: [HttpMethod.POST] },
+      { path: '/plants/{plantId}', methods: [HttpMethod.DELETE] },
+      { path: '/plants/{plantId}/photos', methods: [HttpMethod.POST, HttpMethod.GET] },
+      { path: '/milestones', methods: [HttpMethod.POST] },
+      { path: '/me/trees', methods: [HttpMethod.GET] },
+    ];
+    for (const r of jwtRoutes) {
+      httpApi.addRoutes({
+        path: r.path,
+        methods: r.methods,
+        integration: routerIntegration,
+        authorizer: jwtAuthorizer,
+      });
+    }
+
+    // The webhook is the only unauthenticated route — it verifies the shared
+    // secret itself, so no JWT authorizer.
+    httpApi.addRoutes({
+      path: '/webhooks/revenuecat',
+      methods: [HttpMethod.POST],
+      integration: webhookIntegration,
+      authorizer: new HttpNoneAuthorizer(),
+    });
+
     // ---------------------------------------------------------------------
     // Outputs the iOS app + RevenueCat config need.
     // ---------------------------------------------------------------------
@@ -177,6 +335,22 @@ export class VerdancyStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'EnabledIdentityProviders', {
       value: identityProviders.map((p) => p.name).join(', '),
       description: 'Identity providers wired into the app client.',
+    });
+    new cdk.CfnOutput(this, 'HttpApiUrl', {
+      value: httpApi.apiEndpoint,
+      description: 'Base URL of the HTTP API (append route paths, e.g. /webhooks/revenuecat).',
+    });
+    new cdk.CfnOutput(this, 'DataTableName', {
+      value: table.tableName,
+      description: 'DynamoDB table name.',
+    });
+    new cdk.CfnOutput(this, 'UserImageBucketName', {
+      value: imageBucket.bucketName,
+      description: 'Private S3 bucket for user images.',
+    });
+    new cdk.CfnOutput(this, 'RevenueCatWebhookSecretName', {
+      value: webhookSecret.secretName,
+      description: 'Secrets Manager secret to read and paste into the RevenueCat dashboard.',
     });
   }
 }
