@@ -223,6 +223,19 @@ In the RevenueCat dashboard → project → Integrations → Webhooks:
 - **Authorization header**: paste the secret value from the command above
 - Set the app's **`appUserID` to the Cognito `sub`** so events map to the right user.
 
+### C3. Smoke-test the live API (optional)
+
+After deploy, exercise the non-AI endpoints end to end (no Gemini cost). Get a JWT from the
+email/password smoke test, then run the API smoke test with the `HttpApiUrl` output:
+
+```
+node scripts/smoke-auth.mjs <UserPoolId> <ClientId> smoketest@verdancy.test "TestPass123!@#"
+node scripts/smoke-api.mjs  <HttpApiUrl> <idToken-from-above>
+```
+
+It runs users → uploads → presigned PUT/GET → plant CRUD → care → milestone idempotency → delete
+cascade, printing a pass/fail line per step.
+
 ---
 
 ## Value cheat-sheet (Stage B)

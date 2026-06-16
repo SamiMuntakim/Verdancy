@@ -7,6 +7,8 @@ import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
 import * as iam from 'aws-cdk-lib/aws-iam';
+import * as logs from 'aws-cdk-lib/aws-logs';
+import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import { HttpApi, HttpMethod, HttpNoneAuthorizer } from 'aws-cdk-lib/aws-apigatewayv2';
 import { HttpUserPoolAuthorizer } from 'aws-cdk-lib/aws-apigatewayv2-authorizers';
@@ -266,12 +268,24 @@ export class VerdancyStack extends cdk.Stack {
       },
     };
 
+    // Explicit, cost-bounded log groups (default is never-expire).
+    const logRemoval = retain ? RemovalPolicy.RETAIN : RemovalPolicy.DESTROY;
+    const routerLogGroup = new logs.LogGroup(this, 'RouterLogGroup', {
+      retention: logs.RetentionDays.ONE_MONTH,
+      removalPolicy: logRemoval,
+    });
+    const webhookLogGroup = new logs.LogGroup(this, 'WebhookLogGroup', {
+      retention: logs.RetentionDays.ONE_MONTH,
+      removalPolicy: logRemoval,
+    });
+
     const routerFn = new NodejsFunction(this, 'RouterFn', {
       ...commonFnProps,
       functionName: 'verdancy-router',
       entry: path.join(handlersDir, 'router.ts'),
       memorySize: 512,
       timeout: Duration.seconds(29),
+      logGroup: routerLogGroup,
       environment: {
         TABLE_NAME: table.tableName,
         USER_IMAGE_BUCKET: imageBucket.bucketName,
@@ -298,6 +312,7 @@ export class VerdancyStack extends cdk.Stack {
       entry: path.join(handlersDir, 'webhook.ts'),
       memorySize: 256,
       timeout: Duration.seconds(15),
+      logGroup: webhookLogGroup,
       environment: {
         TABLE_NAME: table.tableName,
         REVENUECAT_WEBHOOK_SECRET_ARN: webhookSecret.secretArn,
@@ -306,6 +321,25 @@ export class VerdancyStack extends cdk.Stack {
     // Least privilege: read the webhook secret; only UpdateItem on the table.
     webhookSecret.grantRead(webhookFn);
     table.grant(webhookFn, 'dynamodb:UpdateItem');
+
+    // ---------------------------------------------------------------------
+    // CloudWatch alarms — "cheap insurance" (PRD 3.8). Error-rate alarms on
+    // both Lambdas. No SNS action (per the no-push-infrastructure rule); attach
+    // a notification later if desired. The hard cost cap on AI spend is the
+    // per-user quota, enforced in the handler.
+    // ---------------------------------------------------------------------
+    for (const [id, fn] of [
+      ['RouterErrorsAlarm', routerFn],
+      ['WebhookErrorsAlarm', webhookFn],
+    ] as const) {
+      fn.metricErrors({ period: Duration.minutes(5) }).createAlarm(this, id, {
+        threshold: 5,
+        evaluationPeriods: 1,
+        comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+        treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+        alarmDescription: `${fn.functionName}: 5+ errors in 5 minutes`,
+      });
+    }
 
     // ---------------------------------------------------------------------
     // HTTP API — Cognito JWT authorizer on every route EXCEPT the webhook.

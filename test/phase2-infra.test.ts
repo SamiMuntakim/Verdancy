@@ -120,3 +120,17 @@ describe('RevenueCat webhook secret', () => {
     });
   });
 });
+
+describe('Operational hardening (PRD 3.8)', () => {
+  test('Lambda log groups have a bounded (1-month) retention', () => {
+    t.hasResourceProperties('AWS::Logs::LogGroup', { RetentionInDays: 30 });
+  });
+
+  test('error-rate alarms exist for both Lambdas', () => {
+    t.resourceCountIs('AWS::CloudWatch::Alarm', 2);
+    t.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      Namespace: 'AWS/Lambda',
+      MetricName: 'Errors',
+    });
+  });
+});

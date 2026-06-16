@@ -51,6 +51,13 @@ The router + webhook handlers ([`src/handlers`](src/handlers), with helpers in [
   ownership-checked; IAM is least-privilege (router: table + bucket objects + Gemini key; webhook:
   UpdateItem + its secret).
 
+## Operational hardening (PRD 3.8)
+
+- **CloudWatch error-rate alarms** on both Lambdas (no SNS action — attach a notification later).
+- **1-month log retention** on both Lambda log groups (default is never-expire).
+- `scripts/smoke-auth.mjs` (SRP login → JWT) and `scripts/smoke-api.mjs` (end-to-end CRUD/presign/
+  milestone/delete against the deployed API) for post-deploy verification.
+
 ## Commands
 
 ```bash
