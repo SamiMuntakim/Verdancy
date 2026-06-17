@@ -100,8 +100,8 @@ describe('HTTP API + JWT authorizer', () => {
     t.hasResourceProperties('AWS::ApiGatewayV2::Authorizer', { AuthorizerType: 'JWT' });
   });
 
-  test('JWT on app routes, NONE on the webhook (13 routes total)', () => {
-    t.resourceCountIs('AWS::ApiGatewayV2::Route', 13);
+  test('JWT on app routes, NONE on the webhook (14 routes total)', () => {
+    t.resourceCountIs('AWS::ApiGatewayV2::Route', 14);
     t.hasResourceProperties('AWS::ApiGatewayV2::Route', {
       RouteKey: 'POST /identify',
       AuthorizationType: 'JWT',
@@ -126,8 +126,8 @@ describe('Operational hardening (PRD 3.8)', () => {
     t.hasResourceProperties('AWS::Logs::LogGroup', { RetentionInDays: 30 });
   });
 
-  test('error-rate alarms exist for both Lambdas', () => {
-    t.resourceCountIs('AWS::CloudWatch::Alarm', 2);
+  test('error-rate alarms exist for the Lambdas', () => {
+    t.resourceCountIs('AWS::CloudWatch::Alarm', 3);
     t.hasResourceProperties('AWS::CloudWatch::Alarm', {
       Namespace: 'AWS/Lambda',
       MetricName: 'Errors',

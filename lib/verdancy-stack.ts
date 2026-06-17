@@ -9,6 +9,8 @@ import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
+import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
+import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import { HttpApi, HttpMethod, HttpNoneAuthorizer } from 'aws-cdk-lib/aws-apigatewayv2';
 import { HttpUserPoolAuthorizer } from 'aws-cdk-lib/aws-apigatewayv2-authorizers';
@@ -36,9 +38,11 @@ export interface VerdancyStackProps extends cdk.StackProps {
  * Phase 2: DynamoDB single table, private S3 image bucket, the HTTP API with a
  *   Cognito JWT authorizer on every route except the secret-verified RevenueCat
  *   webhook, and the router + webhook Lambdas.
- * Phase 3 (current): the handler logic — Gemini proxy with entitlement+quota,
- *   presigned uploads, CRUD with S3 cascade, milestones, and the webhook — plus
- *   the least-privilege IAM grants those need.
+ * Phase 3: the handler logic — Gemini proxy with entitlement+quota, presigned
+ *   uploads, CRUD with S3 cascade, milestones, and the webhook — plus the
+ *   least-privilege IAM grants those need.
+ * Post-MVP (Appendix A): the Plant Buddy sprite pipeline — a shared sprite bucket
+ *   fronted by CloudFront, and a JWT-authed generation Lambda (POST /buddy).
  */
 export class VerdancyStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: VerdancyStackProps) {
@@ -223,6 +227,31 @@ export class VerdancyStack extends cdk.Stack {
     });
 
     // ---------------------------------------------------------------------
+    // Plant Buddy sprites (post-MVP, PRD Appendix A). A SEPARATE bucket from
+    // user images: sprites are shared per-species and served read-only via
+    // CloudFront (origin access control), not presigned per-user. The bucket
+    // stays private; only the distribution can read it.
+    // ---------------------------------------------------------------------
+    const spriteBucket = new s3.Bucket(this, 'SpriteStore', {
+      bucketName: `verdancy-sprites-${this.account}-${this.region}`,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      enforceSSL: true,
+      autoDeleteObjects: !retain,
+      removalPolicy: retain ? RemovalPolicy.RETAIN : RemovalPolicy.DESTROY,
+    });
+    const spriteCdn = new cloudfront.Distribution(this, 'SpriteCdn', {
+      comment: 'Verdancy shared plant-buddy sprites',
+      defaultBehavior: {
+        origin: origins.S3BucketOrigin.withOriginAccessControl(spriteBucket),
+        viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+        cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
+        allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD,
+      },
+    });
+    const spriteCdnBase = `https://${spriteCdn.distributionDomainName}`;
+
+    // ---------------------------------------------------------------------
     // Secrets — the RevenueCat shared webhook secret. CDK generates the value;
     // fetch it after deploy and paste the same value into the RevenueCat
     // dashboard. (Gemini key arrives in Phase 3.)
@@ -322,6 +351,37 @@ export class VerdancyStack extends cdk.Stack {
     webhookSecret.grantRead(webhookFn);
     table.grant(webhookFn, 'dynamodb:UpdateItem');
 
+    // Plant Buddy generation Lambda — heavier (image gen + pixel processing).
+    const buddyLogGroup = new logs.LogGroup(this, 'BuddyLogGroup', {
+      retention: logs.RetentionDays.ONE_MONTH,
+      removalPolicy: logRemoval,
+    });
+    const buddyFn = new NodejsFunction(this, 'BuddyFn', {
+      ...commonFnProps,
+      functionName: 'verdancy-buddy',
+      entry: path.join(handlersDir, 'buddy.ts'),
+      memorySize: 1024,
+      timeout: Duration.seconds(29),
+      logGroup: buddyLogGroup,
+      environment: {
+        TABLE_NAME: table.tableName,
+        SPRITE_BUCKET: spriteBucket.bucketName,
+        SPRITE_CDN_BASE: spriteCdnBase,
+        GEMINI_API_KEY_SECRET_NAME: GEMINI_SECRET_NAME,
+        BUDDY_MODEL_ID: 'gemini-2.5-flash-image',
+      },
+    });
+    // Least privilege: table RW (read garden, claim/finalize the buddy item),
+    // the Gemini key, and write-only access to sprite-bucket objects.
+    table.grantReadWriteData(buddyFn);
+    geminiSecret.grantRead(buddyFn);
+    buddyFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['s3:PutObject'],
+        resources: [spriteBucket.arnForObjects('*')],
+      }),
+    );
+
     // ---------------------------------------------------------------------
     // CloudWatch alarms — "cheap insurance" (PRD 3.8). Error-rate alarms on
     // both Lambdas. No SNS action (per the no-push-infrastructure rule); attach
@@ -331,6 +391,7 @@ export class VerdancyStack extends cdk.Stack {
     for (const [id, fn] of [
       ['RouterErrorsAlarm', routerFn],
       ['WebhookErrorsAlarm', webhookFn],
+      ['BuddyErrorsAlarm', buddyFn],
     ] as const) {
       fn.metricErrors({ period: Duration.minutes(5) }).createAlarm(this, id, {
         threshold: 5,
@@ -354,6 +415,7 @@ export class VerdancyStack extends cdk.Stack {
     });
     const routerIntegration = new HttpLambdaIntegration('RouterIntegration', routerFn);
     const webhookIntegration = new HttpLambdaIntegration('WebhookIntegration', webhookFn);
+    const buddyIntegration = new HttpLambdaIntegration('BuddyIntegration', buddyFn);
 
     const jwtRoutes: ReadonlyArray<{ path: string; methods: HttpMethod[] }> = [
       { path: '/users', methods: [HttpMethod.POST] },
@@ -375,6 +437,14 @@ export class VerdancyStack extends cdk.Stack {
         authorizer: jwtAuthorizer,
       });
     }
+
+    // Plant Buddy generation — JWT-authed, but its own (heavier) Lambda.
+    httpApi.addRoutes({
+      path: '/buddy',
+      methods: [HttpMethod.POST],
+      integration: buddyIntegration,
+      authorizer: jwtAuthorizer,
+    });
 
     // The webhook is the only unauthenticated route — it verifies the shared
     // secret itself, so no JWT authorizer.
@@ -419,6 +489,14 @@ export class VerdancyStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'RevenueCatWebhookSecretName', {
       value: webhookSecret.secretName,
       description: 'Secrets Manager secret to read and paste into the RevenueCat dashboard.',
+    });
+    new cdk.CfnOutput(this, 'SpriteCdnUrl', {
+      value: spriteCdnBase,
+      description: 'CloudFront base URL for shared Plant Buddy sprites.',
+    });
+    new cdk.CfnOutput(this, 'SpriteBucketName', {
+      value: spriteBucket.bucketName,
+      description: 'Private S3 bucket holding generated buddy sprites (served via CloudFront).',
     });
   }
 }

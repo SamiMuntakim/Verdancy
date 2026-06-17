@@ -23,6 +23,7 @@ import {
   deletePlantAndPhotos,
   recordMilestone,
   getTrees,
+  getBuddiesForSpecies,
   type PlantRecord,
 } from '../lib/dynamo';
 import { presignPut, presignGet, deleteObjects } from '../lib/s3';
@@ -143,10 +144,15 @@ async function handleCreatePlant(sub: string, event: APIGatewayProxyEventV2WithJ
 
 async function handleListPlants(sub: string) {
   const plants = await listPlants(sub);
+  const speciesList = plants
+    .map((p) => (typeof p.species === 'string' ? p.species : ''))
+    .filter(Boolean);
+  const buddies = speciesList.length > 0 ? await getBuddiesForSpecies(speciesList) : {};
   const items = await Promise.all(
     plants.map(async (p) => ({
       ...plantView(p),
       download_url: typeof p.image_ref === 'string' ? await presignGet(p.image_ref) : null,
+      buddy: typeof p.species === 'string' ? (buddies[p.species] ?? null) : null,
     })),
   );
   return json(200, { plants: items });

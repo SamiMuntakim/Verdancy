@@ -16,6 +16,21 @@ export const photoSkPrefix = (plantId: string): string => `PHOTO#${plantId}#`;
 export const photoSk = (plantId: string, ts: string): string => `PHOTO#${plantId}#${ts}`;
 export const quotaSk = (day: string): string => `QUOTA#${day}`;
 
+// Plant Buddy (post-MVP): one shared sprite per normalized species.
+export const speciesPk = (species: string): string => `SPECIES#${species}`;
+export const BUDDY_SK = 'BUDDY';
+
+/** URL-safe slug for the species, used in the sprite S3 key. */
+export function speciesSlug(species: string): string {
+  return species.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+}
+
+/** Sprite object key in the (CloudFront-fronted) sprite bucket. style_version in
+ *  the path lets the art be fully re-cached without invalidations. */
+export function spriteKey(species: string, styleVersion: number): string {
+  return `sprites/${speciesSlug(species)}/v${styleVersion}.png`;
+}
+
 /** Server-minted S3 key: `u/<sub>/p/<plantId>/<uuid>.jpg`. */
 export function newImageKey(sub: string, plantId: string): string {
   return `u/${sub}/p/${plantId}/${randomUUID()}.jpg`;

@@ -1,4 +1,4 @@
-import { GoogleGenAI, Type, type Schema } from '@google/genai';
+import { GoogleGenAI, Type, Modality, type Schema } from '@google/genai';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import { requireEnv } from './env';
 import { ApiError } from './errors';
@@ -13,6 +13,8 @@ import { applyIdentifySafety } from './safety';
  */
 
 const DEFAULT_MODEL = 'gemini-3.5-flash';
+// Image-output model for Plant Buddy sprites (override via BUDDY_MODEL_ID).
+const DEFAULT_BUDDY_MODEL = 'gemini-2.5-flash-image';
 
 const sm = new SecretsManagerClient({});
 let client: GoogleGenAI | undefined;
@@ -156,6 +158,45 @@ export async function diagnose(imageBase64: string): Promise<DiagnoseResult> {
     "Diagnose this plant's health and produce a triage plan.",
     imageBase64,
   );
+}
+
+// Plant Buddy sprite generation (PRD Appendix A). Fixed style prefix + species
+// clause; flat magenta field so the background keys out cleanly. (Style-bible
+// reference sprites can be added as extra input parts once the art exists.)
+const BUDDY_STYLE_PREFIX = [
+  'Generate a single cute pixel-art "plant buddy" mascot: a chibi anthropomorphic',
+  'houseplant with a simple friendly face, clean 16-bit pixel-art style, bold dark',
+  'outline, limited flat colors, centered, full body, front-facing, no text and no',
+  'ground shadow. Put it on a completely flat solid magenta (#FF00FF) background',
+  'with no gradient so the background can be keyed out.',
+].join(' ');
+
+export interface GeneratedImage {
+  data: Buffer;
+  mimeType: string;
+}
+
+export async function generateBuddyImage(species: string): Promise<GeneratedImage> {
+  const ai = await getClient();
+  const model = process.env.BUDDY_MODEL_ID || DEFAULT_BUDDY_MODEL;
+  const res = await ai.models.generateContent({
+    model,
+    contents: [
+      {
+        role: 'user',
+        parts: [{ text: `${BUDDY_STYLE_PREFIX} The plant species is: ${species}.` }],
+      },
+    ],
+    config: { responseModalities: [Modality.IMAGE] },
+  });
+  const parts = res.candidates?.[0]?.content?.parts ?? [];
+  for (const part of parts) {
+    const inline = part.inlineData;
+    if (inline?.data) {
+      return { data: Buffer.from(inline.data, 'base64'), mimeType: inline.mimeType ?? 'image/png' };
+    }
+  }
+  throw new ApiError(502, 'Image model returned no image');
 }
 
 /** Test-only: reset the cached client between unit tests. */

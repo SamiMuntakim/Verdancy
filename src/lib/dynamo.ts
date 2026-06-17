@@ -6,10 +6,20 @@ import {
   QueryCommand,
   UpdateCommand,
   BatchWriteCommand,
+  BatchGetCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { ApiError } from './errors';
 import { requireEnv, nowIso, todayUtc, quotaTtlEpoch } from './env';
-import { userPk, META_SK, plantSk, photoSk, photoSkPrefix, quotaSk } from './keys';
+import {
+  userPk,
+  META_SK,
+  plantSk,
+  photoSk,
+  photoSkPrefix,
+  quotaSk,
+  speciesPk,
+  BUDDY_SK,
+} from './keys';
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
   marshallOptions: { removeUndefinedValues: true },
@@ -299,4 +309,130 @@ export async function getTrees(sub: string): Promise<TreesView> {
     trees_pledged: (meta?.trees_pledged as number) ?? 0,
     milestones: toMilestoneArray(meta?.milestones),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Plant Buddy — one shared SPECIES#<species>/BUDDY item, generated once.
+// ---------------------------------------------------------------------------
+
+export interface BuddyRecord {
+  status: 'pending' | 'ready' | 'failed';
+  sprite_url?: string;
+  style_version?: number;
+  created_at?: string;
+}
+
+export async function getBuddy(species: string): Promise<BuddyRecord | undefined> {
+  const res = await ddb.send(
+    new GetCommand({ TableName: table(), Key: { PK: speciesPk(species), SK: BUDDY_SK } }),
+  );
+  return res.Item as BuddyRecord | undefined;
+}
+
+/**
+ * Atomically claim the right to generate this species' sprite. Succeeds only if
+ * no item exists yet, the last attempt failed, or a prior `pending` claim is
+ * stale (a crashed/timed-out generation). Concurrent callers: exactly one wins;
+ * the rest get `false` (someone else is generating, or it's already ready).
+ */
+export async function claimBuddyGeneration(
+  species: string,
+  styleVersion: number,
+  staleBeforeEpoch: number,
+): Promise<boolean> {
+  try {
+    await ddb.send(
+      new PutCommand({
+        TableName: table(),
+        Item: {
+          PK: speciesPk(species),
+          SK: BUDDY_SK,
+          status: 'pending',
+          style_version: styleVersion,
+          claimed_at: Math.floor(Date.now() / 1000),
+        },
+        ConditionExpression:
+          'attribute_not_exists(SK) OR #s = :failed OR (#s = :pending AND claimed_at < :stale)',
+        ExpressionAttributeNames: { '#s': 'status' },
+        ExpressionAttributeValues: {
+          ':failed': 'failed',
+          ':pending': 'pending',
+          ':stale': staleBeforeEpoch,
+        },
+      }),
+    );
+    return true;
+  } catch (err) {
+    if (isConditionalFailure(err)) return false;
+    throw err;
+  }
+}
+
+export async function finalizeBuddy(
+  species: string,
+  spriteUrl: string,
+  styleVersion: number,
+): Promise<void> {
+  await ddb.send(
+    new UpdateCommand({
+      TableName: table(),
+      Key: { PK: speciesPk(species), SK: BUDDY_SK },
+      UpdateExpression:
+        'SET #s = :ready, sprite_url = :url, style_version = :sv, ' +
+        'created_at = if_not_exists(created_at, :now)',
+      ExpressionAttributeNames: { '#s': 'status' },
+      ExpressionAttributeValues: {
+        ':ready': 'ready',
+        ':url': spriteUrl,
+        ':sv': styleVersion,
+        ':now': nowIso(),
+      },
+    }),
+  );
+}
+
+/** Best-effort: mark a failed generation so it can be retried (don't clobber ready). */
+export async function failBuddy(species: string): Promise<void> {
+  try {
+    await ddb.send(
+      new UpdateCommand({
+        TableName: table(),
+        Key: { PK: speciesPk(species), SK: BUDDY_SK },
+        UpdateExpression: 'SET #s = :failed',
+        ConditionExpression: '#s = :pending',
+        ExpressionAttributeNames: { '#s': 'status' },
+        ExpressionAttributeValues: { ':failed': 'failed', ':pending': 'pending' },
+      }),
+    );
+  } catch (err) {
+    if (!isConditionalFailure(err)) throw err;
+  }
+}
+
+/** Resolve buddy state for a set of species (for GET /plants). */
+export async function getBuddiesForSpecies(
+  speciesList: string[],
+): Promise<Record<string, BuddyRecord>> {
+  const unique = [...new Set(speciesList.filter((s) => s))];
+  const out: Record<string, BuddyRecord> = {};
+  for (let i = 0; i < unique.length; i += 100) {
+    const chunk = unique.slice(i, i + 100);
+    const res = await ddb.send(
+      new BatchGetCommand({
+        RequestItems: {
+          [table()]: { Keys: chunk.map((s) => ({ PK: speciesPk(s), SK: BUDDY_SK })) },
+        },
+      }),
+    );
+    for (const item of res.Responses?.[table()] ?? []) {
+      const species = String(item.PK).replace('SPECIES#', '');
+      out[species] = {
+        status: item.status,
+        sprite_url: item.sprite_url,
+        style_version: item.style_version,
+        created_at: item.created_at,
+      };
+    }
+  }
+  return out;
 }

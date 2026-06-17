@@ -20,7 +20,9 @@
     "@aws-sdk/client-secrets-manager": "^3.1069.0",
     "@types/aws-lambda": "^8.10.162",
     "@types/jest": "^29.5.12",
+    "@types/jpeg-js": "^0.3.0",
     "@types/node": "^20.14.0",
+    "@types/pngjs": "^6.0.5",
     "amazon-cognito-identity-js": "^6.3.16",
     "aws-cdk": "^2.160.0",
     "aws-sdk-client-mock": "^4.1.0",
@@ -40,6 +42,8 @@
     "@aws-sdk/s3-request-presigner": "^3.1069.0",
     "@google/genai": "^2.8.0",
     "aws-cdk-lib": "^2.160.0",
-    "constructs": "^10.3.0"
+    "constructs": "^10.3.0",
+    "jpeg-js": "^0.4.4",
+    "pngjs": "^7.0.0"
   }
 }

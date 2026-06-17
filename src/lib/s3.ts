@@ -7,6 +7,25 @@ import {
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { requireEnv } from './env';
 
+const spriteBucket = (): string => requireEnv('SPRITE_BUCKET');
+
+/**
+ * Upload a generated Plant Buddy sprite to the shared sprite bucket (served via
+ * CloudFront). style_version is in the key, so objects are immutable and cached
+ * forever; a revamp writes a new key.
+ */
+export async function putSprite(key: string, png: Buffer): Promise<void> {
+  await s3.send(
+    new PutObjectCommand({
+      Bucket: spriteBucket(),
+      Key: key,
+      Body: png,
+      ContentType: 'image/png',
+      CacheControl: 'public, max-age=31536000, immutable',
+    }),
+  );
+}
+
 /**
  * Presigned-URL access only — image bytes never pass through Lambda (hard
  * invariant #6). URLs are short-lived; the app caches downloaded bytes locally.

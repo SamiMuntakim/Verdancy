@@ -223,6 +223,17 @@ In the RevenueCat dashboard → project → Integrations → Webhooks:
 - **Authorization header**: paste the secret value from the command above
 - Set the app's **`appUserID` to the Cognito `sub`** so events map to the right user.
 
+### C4. Plant Buddy sprites (post-MVP)
+
+No extra secret — the buddy Lambda reuses `verdancy/gemini-api-key`. Notes:
+
+- The sprite bucket + CloudFront deploy automatically; the first CloudFront deploy takes a few
+  minutes. The CDN base URL is the `SpriteCdnUrl` output.
+- The image model is set by `BUDDY_MODEL_ID` (default `gemini-2.5-flash-image`). If your Gemini
+  account uses a different image-generation model id, set it on the `verdancy-buddy` Lambda.
+- The locked palette + style prompt live in `src/lib/buddy.ts` / `src/lib/gemini.ts`. To revamp the
+  art, change them and bump `STYLE_VERSION` (sprites re-cache under a new key).
+
 ### C3. Smoke-test the live API (optional)
 
 After deploy, exercise the non-AI endpoints end to end (no Gemini cost). Get a JWT from the

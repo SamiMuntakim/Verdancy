@@ -58,6 +58,23 @@ The router + webhook handlers ([`src/handlers`](src/handlers), with helpers in [
 - `scripts/smoke-auth.mjs` (SRP login → JWT) and `scripts/smoke-api.mjs` (end-to-end CRUD/presign/
   milestone/delete against the deployed API) for post-deploy verification.
 
+## Plant Buddy sprites (post-MVP, PRD Appendix A)
+
+A shared pixel-art "bud" per species, generated once and cached:
+
+- **Separate sprite bucket + CloudFront** (private bucket, origin-access-control) — distinct from the
+  per-user image bucket, since a sprite is shared across all owners of a species.
+- **`POST /buddy` {species}** (JWT-authed, its own `verdancy-buddy` Lambda): cache hit → the
+  CloudFront URL; otherwise one caller **atomically claims** generation (`SPECIES#<species>/BUDDY`,
+  stale-claim recovery), generates via a Gemini image model, post-processes
+  (**chroma-key → nearest-neighbor downscale → palette quantize**, in `src/lib/buddy.ts`), uploads,
+  and records the URL. Concurrent callers get `202 pending`. Generation is bounded to species the
+  caller actually grows.
+- `style_version` lives in the sprite key, so an art revamp re-caches without invalidations.
+- `GET /plants` resolves each plant's buddy (`status` / `sprite_url`) via a batch lookup.
+- Model is `BUDDY_MODEL_ID` (default `gemini-2.5-flash-image`); reuses the `verdancy/gemini-api-key`
+  secret.
+
 ## Commands
 
 ```bash
