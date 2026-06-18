@@ -6,7 +6,7 @@ import SwiftUI
 struct SettingsView: View {
     @Environment(AppModel.self) private var app
     @State private var showPaywall = false
-    @State private var remindersOn = true
+    @State private var remindersOn = NotificationService.shared.remindersEnabled
 
     private var totalTrees: Int {
         (app.isSubscribed ? 10 : 0) + app.garden.trees.treesPledged
@@ -26,7 +26,7 @@ struct SettingsView: View {
                     if !app.isSubscribed {
                         Button("See plans") { showPaywall = true }
                     }
-                    Button("Restore purchases") {}
+                    Button("Restore purchases") { Task { await app.entitlement.restore() } }
                 }
 
                 Section("Your impact") {
@@ -50,6 +50,13 @@ struct SettingsView: View {
 
                 Section("Notifications") {
                     Toggle("Care reminders", isOn: $remindersOn)
+                        .onChange(of: remindersOn) { _, on in
+                            app.notifications.remindersEnabled = on
+                            Task {
+                                if on { await app.notifications.requestAuthorizationIfNeeded() }
+                                await app.notifications.reschedule(for: app.garden.plants)
+                            }
+                        }
                 }
 
                 Section("About") {

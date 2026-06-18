@@ -5,14 +5,18 @@ struct RootView: View {
     @Environment(AppModel.self) private var app
 
     var body: some View {
+        @Bindable var app = app
         Group {
             switch app.phase {
             case .launching: LaunchView()
-            case .signedOut: SignInView()
+            case .signedOut: OnboardingView()
             case .signedIn: MainTabView()
             }
         }
         .animation(.smooth, value: app.phase)
+        .fullScreenCover(isPresented: $app.pendingBloom) {
+            BloomCelebrationView { app.pendingBloom = false }
+        }
     }
 }
 

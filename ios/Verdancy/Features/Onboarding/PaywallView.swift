@@ -6,10 +6,9 @@ import SwiftUI
 struct PaywallView: View {
     @Environment(AppModel.self) private var app
     @Environment(\.dismiss) private var dismiss
-    @State private var plan: Plan = .annual
+    @State private var plan: EntitlementService.Plan = .annual
     @State private var isWorking = false
-
-    enum Plan { case annual, monthly }
+    @State private var error: String?
 
     var body: some View {
         NavigationStack {
@@ -43,7 +42,13 @@ struct PaywallView: View {
                     .buttonStyle(.borderedProminent).tint(Theme.Color.leaf)
                     .disabled(isWorking)
 
-                    Button("Restore Purchases") {}.font(.footnote)
+                    if let error {
+                        Text(error).font(.footnote).foregroundStyle(Theme.Color.danger)
+                    }
+                    Button("Restore Purchases") {
+                        Task { await app.entitlement.restore(); if app.isSubscribed { dismiss() } }
+                    }
+                    .font(.footnote)
                     Text("Cancel anytime. We stagger your 10 trees across the first year.")
                         .font(.caption2).multilineTextAlignment(.center)
                         .foregroundStyle(Theme.Color.textSecondary)
@@ -58,14 +63,17 @@ struct PaywallView: View {
     }
 
     private func subscribe() async {
-        // Phase 4: drive via RevenueCat (trial start → bloom reveal). For now flip the
-        // local entitlement so the trees/buddy demo works; the server is the authority.
         isWorking = true
-        try? await Task.sleep(for: .milliseconds(500))
-        app.isSubscribed = true
-        Haptics.celebrate()
+        error = nil
+        do {
+            // Starts the trial via RevenueCat (or mock), then the bloom reveal fires
+            // from RootView via app.pendingBloom. The server stays the access authority.
+            try await app.startTrial(plan)
+            dismiss()
+        } catch {
+            self.error = "Couldn't start the trial. Please try again."
+        }
         isWorking = false
-        dismiss()
     }
 }
 

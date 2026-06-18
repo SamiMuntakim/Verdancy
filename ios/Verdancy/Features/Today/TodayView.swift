@@ -13,7 +13,7 @@ struct TodayView: View {
         NavigationStack {
             List {
                 Section {
-                    GreetingHeader(trees: totalTrees, streak: 0) // streak wired in Phase 3
+                    GreetingHeader(trees: totalTrees, streak: app.streak.current)
                 }
                 .listRowInsets(EdgeInsets())
                 .listRowBackground(Color.clear)

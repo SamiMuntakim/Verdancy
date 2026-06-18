@@ -25,6 +25,10 @@ final class GardenStore {
     var isLoading = false
     var didLoadOnce = false
 
+    /// Invoked after the plant list changes (refresh/insert/care/remove) so the app
+    /// can update the streak + reschedule reminders. Does NOT fire on snapshot hydrate.
+    var onChanged: (([Plant]) -> Void)?
+
     init(api: APIClient) {
         self.api = api
     }
@@ -55,6 +59,7 @@ final class GardenStore {
                 didLoadOnce = true
             }
         }
+        onChanged?(plants)
     }
 
     /// Today's due list — overdue first (iOS-PRD §3.1).
@@ -73,11 +78,12 @@ final class GardenStore {
     /// Optimistically mark a task done, then sync; refetch on failure.
     func logCare(plant: Plant, type: CareType) async {
         applyCareLocally(plantId: plant.plantId, type: type, at: Date())
+        onChanged?(plants) // optimistic — update streak + reminders immediately
         do {
             try await api.logCare(plantId: plant.plantId, type: type)
             SnapshotStore.save(GardenSnapshot(plants: plants, trees: trees))
         } catch {
-            await refresh()
+            await refresh() // fires onChanged again on rollback
         }
     }
 
@@ -85,12 +91,14 @@ final class GardenStore {
         try await api.deletePlant(plantId: plantId)
         plants.removeAll { $0.plantId == plantId }
         SnapshotStore.save(GardenSnapshot(plants: plants, trees: trees))
+        onChanged?(plants)
     }
 
     func insert(_ plant: Plant) {
         plants.removeAll { $0.plantId == plant.plantId }
         plants.insert(plant, at: 0)
         SnapshotStore.save(GardenSnapshot(plants: plants, trees: trees))
+        onChanged?(plants)
     }
 
     private func applyCareLocally(plantId: String, type: CareType, at date: Date) {
