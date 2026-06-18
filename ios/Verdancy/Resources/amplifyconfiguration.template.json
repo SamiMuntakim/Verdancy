@@ -1,0 +1,29 @@
+{
+  "_comment": "Copy to amplifyconfiguration.json and fill in real values. The real file is gitignored. Values come from the deployed Cognito stack (Stage B): UserPoolId, app client id, region, and the hosted-UI domain prefix.",
+  "auth": {
+    "plugins": {
+      "awsCognitoAuthPlugin": {
+        "IdentityManager": { "Default": {} },
+        "CognitoUserPool": {
+          "Default": {
+            "PoolId": "REGION_xxxxxxxxx",
+            "AppClientId": "APP_CLIENT_ID",
+            "Region": "us-west-1"
+          }
+        },
+        "Auth": {
+          "Default": {
+            "authenticationFlowType": "USER_SRP_AUTH",
+            "OAuth": {
+              "WebDomain": "PREFIX.auth.us-west-1.amazoncognito.com",
+              "AppClientId": "APP_CLIENT_ID",
+              "SignInRedirectURI": "verdancy://auth/callback",
+              "SignOutRedirectURI": "verdancy://auth/logout",
+              "Scopes": ["openid", "email", "profile"]
+            }
+          }
+        }
+      }
+    }
+  }
+}

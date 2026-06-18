@@ -1,0 +1,22 @@
+# Xcode / build
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.xcscmblueprint
+*.xccheckout
+
+# XcodeGen generates this from project.yml — don't commit it.
+Verdancy.xcodeproj/
+
+# Swift Package Manager
+.swiftpm/
+Packages/
+.build/
+
+# Secrets / local config (real values filled in on the Mac)
+amplifyconfiguration.json
+*.env
+
+# macOS
+.DS_Store
