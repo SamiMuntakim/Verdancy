@@ -41,9 +41,7 @@ struct SettingsView: View {
                 }
 
                 Section("Grow the forest") {
-                    Button {
-                        // Phase 5: referral — "invite a friend, plant a tree for both".
-                    } label: {
+                    ShareLink(item: Invite.url, message: Text(Invite.message)) {
                         Label("Invite a friend — a tree for both of you", systemImage: "gift.fill")
                     }
                 }

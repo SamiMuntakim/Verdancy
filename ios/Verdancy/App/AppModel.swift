@@ -13,6 +13,8 @@ final class AppModel {
     var selectedTab: Tab = .today
     /// Fires the one-time bloom reveal after a successful subscribe (iOS-PRD §8.4).
     var pendingBloom = false
+    /// Set to the new tree total when a milestone tree is earned → transient banner.
+    var treeCelebrationCount: Int?
 
     let auth: AuthService
     let api: APIClient
@@ -44,7 +46,43 @@ final class AppModel {
             Task {
                 if isFirstPlant { await self.notifications.requestAuthorizationIfNeeded() }
                 await self.notifications.reschedule(for: plants)
+                await self.reportMilestonesIfNeeded()
             }
+        }
+    }
+
+    private var totalTrees: Int { (isSubscribed ? 10 : 0) + garden.trees.treesPledged }
+
+    private let reportedKey = "verdancy.reportedMilestones"
+    private var reportedMilestones: Set<String> {
+        get { Set(UserDefaults.standard.stringArray(forKey: reportedKey) ?? []) }
+        set { UserDefaults.standard.set(Array(newValue), forKey: reportedKey) }
+    }
+
+    /// Count-based milestones (iOS-PRD §10): first/fifth/tenth plant. Subscriber-only
+    /// (§7); reported idempotently — the server dedupes.
+    func reportMilestonesIfNeeded() async {
+        guard isSubscribed else { return }
+        let count = garden.plants.count
+        var reached: [String] = []
+        if count >= 1 { reached.append("first_plant") }
+        if count >= 5 { reached.append("fifth_plant") }
+        if count >= 10 { reached.append("tenth_plant") }
+
+        var reported = reportedMilestones
+        for id in reached where !reported.contains(id) {
+            if AppConfig.useMockAuth {
+                garden.trees = TreeStatus(
+                    treesPledged: garden.trees.treesPledged + 1,
+                    milestones: garden.trees.milestones + [id])
+            } else {
+                guard let status = try? await api.recordMilestone(id) else { continue }
+                garden.trees = status
+            }
+            reported.insert(id)
+            reportedMilestones = reported
+            treeCelebrationCount = totalTrees
+            Haptics.celebrate()
         }
     }
 
@@ -72,7 +110,10 @@ final class AppModel {
     /// Start the trial / purchase, then trigger the bloom on success.
     func startTrial(_ plan: EntitlementService.Plan) async throws {
         let active = try await entitlement.purchase(plan)
-        if active { pendingBloom = true }
+        if active {
+            pendingBloom = true
+            await reportMilestonesIfNeeded() // a subscriber with plants earns first_plant now
+        }
     }
 
     func signOut() async {
@@ -80,9 +121,11 @@ final class AppModel {
         await entitlement.reset()
         SnapshotStore.clear()
         notifications.cancelAll()
+        UserDefaults.standard.removeObject(forKey: reportedKey)
         garden.plants = []
         garden.trees = .empty
         knewPlants = false
+        treeCelebrationCount = nil
         phase = .signedOut
     }
 }

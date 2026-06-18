@@ -38,12 +38,18 @@ struct BloomCelebrationView: View {
                 .opacity(bloomed ? 1 : 0)
 
                 Spacer()
-                Button("Let's grow", action: onDone)
-                    .buttonStyle(.borderedProminent)
-                    .tint(Theme.Color.leaf)
-                    .opacity(showCTA ? 1 : 0)
-                    .padding(.bottom, Theme.Space.xl)
-                    .padding(.horizontal, Theme.Space.xl)
+                VStack(spacing: Theme.Space.s) {
+                    Button("Let's grow", action: onDone)
+                        .buttonStyle(.borderedProminent)
+                        .tint(Theme.Color.leaf)
+                    ShareLink(item: Invite.url, message: Text(Invite.message)) {
+                        Label("Share the news", systemImage: "square.and.arrow.up")
+                    }
+                    .font(.subheadline)
+                }
+                .opacity(showCTA ? 1 : 0)
+                .padding(.bottom, Theme.Space.xl)
+                .padding(.horizontal, Theme.Space.xl)
             }
         }
         .onAppear {

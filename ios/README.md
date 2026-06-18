@@ -31,6 +31,17 @@ is fully previewable/runnable — flip `AppConfig.useMockAuth` to `false` once C
 
 ## Status
 
-Built so far: project scaffold, the foundation (models, `APIClient`, `AuthService`), the design
-system, and **Phase 1 (Shell + Auth)** plus the four tab pages. Phases 2–5 (core scan loop, garden +
-Today + streaks, monetization + bloom, referral) follow the iOS-PRD §12 plan.
+Built: project scaffold + foundation (models, `APIClient`, `AuthService`, design system,
+`GardenStore`/`ImageCache`/`SnapshotStore`/`ImagePipeline`), and iOS-PRD **Phases 1–5** in substance:
+
+- **1 Shell + Auth** — onboarding → Sign in with Apple, 4-tab shell, `POST /users`.
+- **2 Core loop** — Smart Scan (identify/diagnose, camera + library), §6 low-confidence handling,
+  save flow (`/uploads` → S3 → `/plants`), the dormant bud.
+- **3 Garden/Today/streaks** — My Oasis + detail + delete, on-device due-list, swipe-to-complete,
+  care streak, local notifications, snapshot offline.
+- **4 Monetization + bloom** — onboarding, hard paywall, RevenueCat (`EntitlementService`), the
+  seed→bloom reveal, tree-impact display, Settings.
+- **5 Referral/sharing** — milestone reporting + tree-earned celebration, `ShareLink` invites.
+
+**Still to do:** bundled bud sprite assets, account deletion (needs backend `DELETE /users`),
+RevenueCat offering config, and a **Mac/Xcode compile pass** (this was authored on Windows).

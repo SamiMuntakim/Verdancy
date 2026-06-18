@@ -17,6 +17,16 @@ struct RootView: View {
         .fullScreenCover(isPresented: $app.pendingBloom) {
             BloomCelebrationView { app.pendingBloom = false }
         }
+        .overlay(alignment: .top) {
+            if let total = app.treeCelebrationCount {
+                TreeEarnedBanner(total: total)
+                    .task {
+                        try? await Task.sleep(for: .seconds(3))
+                        app.treeCelebrationCount = nil
+                    }
+            }
+        }
+        .animation(.spring(response: 0.5, dampingFraction: 0.8), value: app.treeCelebrationCount)
     }
 }
 
