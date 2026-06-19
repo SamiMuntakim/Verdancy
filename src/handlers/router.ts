@@ -18,15 +18,19 @@ import {
   getPlant,
   listPlants,
   touchCare,
+  updatePlant,
   listPhotos,
   putPhoto,
   deletePlantAndPhotos,
+  deleteAllUserItems,
   recordMilestone,
   getTrees,
   getBuddiesForSpecies,
   type PlantRecord,
+  type PlantUpdates,
 } from '../lib/dynamo';
-import { presignPut, presignGet, deleteObjects } from '../lib/s3';
+import { presignPut, presignGet, deleteObjects, deleteByPrefix } from '../lib/s3';
+import { deleteCognitoUser } from '../lib/cognito';
 import { identify, diagnose } from '../lib/gemini';
 
 const FREE_AI_LIFETIME_LIMIT = () => intEnv('FREE_AI_LIFETIME_LIMIT', 5);
@@ -38,6 +42,13 @@ const MAX_IMAGE_BASE64_CHARS = 7_000_000;
 const asString = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
 const numOrNull = (v: unknown): number | null =>
   typeof v === 'number' && Number.isFinite(v) ? v : null;
+
+/** A cadence must be a positive integer, or null to clear the schedule. */
+function cadenceOrNull(v: unknown): number | null {
+  if (v === null) return null;
+  if (typeof v === 'number' && Number.isInteger(v) && v > 0) return v;
+  throw new ApiError(400, 'cadence_days must be a positive integer or null');
+}
 
 function pathParam(event: APIGatewayProxyEventV2, name: string): string {
   const value = event.pathParameters?.[name];
@@ -223,11 +234,39 @@ async function handleMilestone(sub: string, event: APIGatewayProxyEventV2WithJWT
   const body = parseJsonBody<{ milestoneId?: string }>(event);
   const milestoneId = asString(body.milestoneId);
   if (!milestoneId) throw new ApiError(400, 'milestoneId is required');
+  // Milestone trees are a paid-subscriber benefit (PRD §4.7) — gate server-side.
+  const meta = await getMetadata(sub);
+  if (meta?.blocked) throw new ApiError(403, 'Account is blocked');
+  if (!meta?.entitlement_active) throw new ApiError(403, 'Milestone trees require a subscription');
   return json(200, await recordMilestone(sub, milestoneId));
 }
 
 async function handleGetTrees(sub: string) {
   return json(200, await getTrees(sub));
+}
+
+async function handlePatchPlant(sub: string, event: APIGatewayProxyEventV2WithJWTAuthorizer) {
+  const plantId = pathParam(event, 'plantId');
+  const body = parseJsonBody<Record<string, unknown>>(event);
+  const updates: PlantUpdates = {};
+  if ('nickname' in body) updates.nickname = asString(body.nickname) ?? null;
+  if ('water_cadence_days' in body)
+    updates.waterCadenceDays = cadenceOrNull(body.water_cadence_days);
+  if ('fertilize_cadence_days' in body) {
+    updates.fertilizeCadenceDays = cadenceOrNull(body.fertilize_cadence_days);
+  }
+  if ('prune_cadence_days' in body)
+    updates.pruneCadenceDays = cadenceOrNull(body.prune_cadence_days);
+  const updated = await updatePlant(sub, plantId, updates); // 404 if not owned, 400 if empty
+  return json(200, plantView(updated));
+}
+
+async function handleDeleteUser(sub: string) {
+  // Full account deletion (App Store 5.1.1(v)): images → data → Cognito identity.
+  await deleteByPrefix(`u/${sub}/`);
+  await deleteAllUserItems(sub);
+  await deleteCognitoUser(sub);
+  return json(200, { ok: true });
 }
 
 // ---------------------------------------------------------------------------
@@ -247,6 +286,8 @@ export const handler = async (
     switch (event.routeKey) {
       case 'POST /users':
         return await handleUsers(sub, event);
+      case 'DELETE /users':
+        return await handleDeleteUser(sub);
       case 'POST /uploads':
         return await handleUploads(sub, event);
       case 'POST /identify':
@@ -261,6 +302,8 @@ export const handler = async (
         return await handleCare(sub, event);
       case 'DELETE /plants/{plantId}':
         return await handleDeletePlant(sub, event);
+      case 'PATCH /plants/{plantId}':
+        return await handlePatchPlant(sub, event);
       case 'POST /plants/{plantId}/photos':
         return await handleAddPhoto(sub, event);
       case 'GET /plants/{plantId}/photos':

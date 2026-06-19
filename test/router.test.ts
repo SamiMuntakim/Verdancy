@@ -16,7 +16,11 @@ import {
   UpdateCommand,
   BatchWriteCommand,
 } from '@aws-sdk/lib-dynamodb';
-import { S3Client, DeleteObjectsCommand } from '@aws-sdk/client-s3';
+import { S3Client, DeleteObjectsCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
+import {
+  CognitoIdentityProviderClient,
+  AdminDeleteUserCommand,
+} from '@aws-sdk/client-cognito-identity-provider';
 import type {
   APIGatewayProxyEventV2WithJWTAuthorizer,
   APIGatewayProxyStructuredResultV2,
@@ -26,6 +30,7 @@ import { identify, diagnose } from '../src/lib/gemini';
 
 const ddbMock = mockClient(DynamoDBDocumentClient);
 const s3Mock = mockClient(S3Client);
+const cognitoMock = mockClient(CognitoIdentityProviderClient);
 const identifyMock = identify as jest.Mock;
 const diagnoseMock = diagnose as jest.Mock;
 
@@ -74,6 +79,7 @@ function bodyOf(res: APIGatewayProxyStructuredResultV2): Record<string, unknown>
 beforeAll(() => {
   process.env.TABLE_NAME = 'VerdancyData';
   process.env.USER_IMAGE_BUCKET = 'verdancy-user-images-test';
+  process.env.USER_POOL_ID = 'us-west-1_pool';
   process.env.FREE_AI_LIFETIME_LIMIT = '5';
   process.env.SUBSCRIBER_DAILY_AI_LIMIT = '50';
 });
@@ -81,6 +87,7 @@ beforeAll(() => {
 beforeEach(() => {
   ddbMock.reset();
   s3Mock.reset();
+  cognitoMock.reset();
   identifyMock.mockReset();
   diagnoseMock.mockReset();
 });
@@ -280,8 +287,9 @@ describe('AI proxy — reserve quota BEFORE Gemini (invariant #3)', () => {
   });
 });
 
-describe('POST /milestones — one atomic conditional write (invariant #5)', () => {
-  test('first submit increments trees once', async () => {
+describe('POST /milestones — subscriber-gated, one atomic conditional write', () => {
+  test('subscriber first submit increments trees once', async () => {
+    ddbMock.on(GetCommand).resolves({ Item: { entitlement_active: true } });
     ddbMock.on(UpdateCommand).resolves({
       Attributes: { trees_pledged: 1, milestones: new Set(['first-plant']) },
     });
@@ -293,11 +301,18 @@ describe('POST /milestones — one atomic conditional write (invariant #5)', () 
     );
   });
 
+  test('non-subscriber → 403, nothing recorded (PRD §4.7)', async () => {
+    ddbMock.on(GetCommand).resolves({ Item: { entitlement_active: false } });
+    const res = await run({ routeKey: 'POST /milestones', body: { milestoneId: 'first-plant' } });
+    expect(res.statusCode).toBe(403);
+    expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(0);
+  });
+
   test('duplicate submit is idempotent (+1 once)', async () => {
-    ddbMock.on(UpdateCommand).rejects(condFail());
     ddbMock.on(GetCommand).resolves({
-      Item: { trees_pledged: 1, milestones: new Set(['first-plant']) },
+      Item: { entitlement_active: true, trees_pledged: 1, milestones: new Set(['first-plant']) },
     });
+    ddbMock.on(UpdateCommand).rejects(condFail());
     const res = await run({ routeKey: 'POST /milestones', body: { milestoneId: 'first-plant' } });
     expect(res.statusCode).toBe(200);
     expect(bodyOf(res).trees_pledged).toBe(1);
@@ -306,6 +321,79 @@ describe('POST /milestones — one atomic conditional write (invariant #5)', () 
   test('400 when milestoneId missing', async () => {
     const res = await run({ routeKey: 'POST /milestones', body: {} });
     expect(res.statusCode).toBe(400);
+  });
+});
+
+describe('PATCH /plants/{plantId} — edit', () => {
+  test('updates nickname + water cadence', async () => {
+    ddbMock.on(UpdateCommand).resolves({
+      Attributes: { PK: `USER#${SUB}`, SK: 'PLANT#p1', nickname: 'Monty' },
+    });
+    const res = await run({
+      routeKey: 'PATCH /plants/{plantId}',
+      pathParameters: { plantId: 'p1' },
+      body: { nickname: 'Monty', water_cadence_days: 10 },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(bodyOf(res).plantId).toBe('p1');
+    const input = ddbMock.commandCalls(UpdateCommand)[0].args[0].input;
+    expect(input.UpdateExpression).toContain('nickname = :nick');
+    expect(input.UpdateExpression).toContain('care.water.cadence_days = :w');
+    expect(input.ConditionExpression).toBe('attribute_exists(SK)');
+  });
+
+  test('404 when the plant is not the caller’s', async () => {
+    ddbMock.on(UpdateCommand).rejects(condFail());
+    const res = await run({
+      routeKey: 'PATCH /plants/{plantId}',
+      pathParameters: { plantId: 'p1' },
+      body: { nickname: 'Monty' },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  test('400 when no fields provided', async () => {
+    const res = await run({
+      routeKey: 'PATCH /plants/{plantId}',
+      pathParameters: { plantId: 'p1' },
+      body: {},
+    });
+    expect(res.statusCode).toBe(400);
+    expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(0);
+  });
+
+  test('400 on an invalid cadence', async () => {
+    const res = await run({
+      routeKey: 'PATCH /plants/{plantId}',
+      pathParameters: { plantId: 'p1' },
+      body: { water_cadence_days: -3 },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+});
+
+describe('DELETE /users — account deletion (App Store 5.1.1(v))', () => {
+  test('deletes S3 images, all DynamoDB items, and the Cognito user', async () => {
+    s3Mock.on(ListObjectsV2Command).resolves({
+      Contents: [{ Key: `u/${SUB}/p/p1/a.jpg` }],
+      IsTruncated: false,
+    });
+    s3Mock.on(DeleteObjectsCommand).resolves({});
+    ddbMock.on(QueryCommand).resolves({
+      Items: [
+        { PK: `USER#${SUB}`, SK: 'METADATA' },
+        { PK: `USER#${SUB}`, SK: 'PLANT#p1' },
+      ],
+    });
+    ddbMock.on(BatchWriteCommand).resolves({});
+    cognitoMock.on(AdminDeleteUserCommand).resolves({});
+
+    const res = await run({ routeKey: 'DELETE /users' });
+    expect(res.statusCode).toBe(200);
+    expect(s3Mock.commandCalls(DeleteObjectsCommand)).toHaveLength(1);
+    expect(ddbMock.commandCalls(BatchWriteCommand)).toHaveLength(1);
+    const del = cognitoMock.commandCalls(AdminDeleteUserCommand)[0].args[0].input;
+    expect(del.Username).toBe(SUB);
   });
 });
 

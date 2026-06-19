@@ -43,13 +43,16 @@ The router + webhook handlers ([`src/handlers`](src/handlers), with helpers in [
 - **Entitlement + quota reserved _before_ Gemini**: subscribers hit a date-keyed daily cap
   (`QUOTA#<day>`, TTL'd) → `429`; non-subscribers a lifetime free counter → `402`; `blocked` → `403`.
 - **Presigned uploads** (`POST /uploads`, server-minted keys) and fresh download URLs in `GET /plants`.
-- **CRUD**: `/users`, `/plants` (+ care, photos), `DELETE` with an S3 + records cascade, species
-  normalization, plus `/milestones` (one atomic conditional write) and `GET /me/trees`.
+- **CRUD**: `/users` (+ `DELETE /users` — full account deletion: S3 images + all DynamoDB items +
+  the Cognito identity), `/plants` (create, list, `PATCH` edit, `DELETE` with an S3 + records
+  cascade, care, photos), species normalization.
+- **Trees**: `POST /milestones` (one atomic conditional write, **subscriber-gated** per PRD §4.7)
+  and `GET /me/trees`.
 - **RevenueCat webhook**: shared-secret verified, maps `app_user_id` (= Cognito `sub`) to the
   server-side entitlement flag.
 - Identity is taken only from the verified JWT `sub`; every `{plantId}` route and image_ref is
-  ownership-checked; IAM is least-privilege (router: table + bucket objects + Gemini key; webhook:
-  UpdateItem + its secret).
+  ownership-checked; IAM is least-privilege (router: table + bucket objects/list + Gemini key +
+  `cognito-idp:AdminDeleteUser` on the pool; webhook: `UpdateItem` + its secret).
 
 ## Operational hardening (PRD 3.8)
 

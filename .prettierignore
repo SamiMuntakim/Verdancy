@@ -6,3 +6,7 @@ package-lock.json
 # Source-of-truth docs — owned by humans, not reformatted by tooling.
 CLAUDE.md
 PRD.md
+iOS-PRD.md
+
+# The iOS app is a separate sub-project with its own toolchain.
+ios/

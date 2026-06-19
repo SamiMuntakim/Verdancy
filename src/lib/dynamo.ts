@@ -7,6 +7,7 @@ import {
   UpdateCommand,
   BatchWriteCommand,
   BatchGetCommand,
+  type QueryCommandOutput,
 } from '@aws-sdk/lib-dynamodb';
 import { ApiError } from './errors';
 import { requireEnv, nowIso, todayUtc, quotaTtlEpoch } from './env';
@@ -201,6 +202,61 @@ export async function touchCare(sub: string, plantId: string, type: string): Pro
         ExpressionAttributeValues: { ':now': nowIso() },
       }),
     );
+  } catch (err) {
+    if (isConditionalFailure(err)) throw new ApiError(404, 'Plant not found');
+    throw err;
+  }
+}
+
+export interface PlantUpdates {
+  nickname?: string | null;
+  waterCadenceDays?: number | null;
+  fertilizeCadenceDays?: number | null;
+  pruneCadenceDays?: number | null;
+}
+
+/**
+ * Edit a plant (rename / adjust cadences). Only provided fields change; a `null`
+ * cadence clears that schedule. Conditioned on the item existing under the caller's
+ * PK → 404 if it isn't theirs. Throws 400 if nothing was provided.
+ */
+export async function updatePlant(
+  sub: string,
+  plantId: string,
+  updates: PlantUpdates,
+): Promise<PlantRecord> {
+  const sets: string[] = [];
+  const values: Record<string, unknown> = {};
+  if (updates.nickname !== undefined) {
+    sets.push('nickname = :nick');
+    values[':nick'] = updates.nickname;
+  }
+  if (updates.waterCadenceDays !== undefined) {
+    sets.push('care.water.cadence_days = :w');
+    values[':w'] = updates.waterCadenceDays;
+  }
+  if (updates.fertilizeCadenceDays !== undefined) {
+    sets.push('care.fertilize.cadence_days = :f');
+    values[':f'] = updates.fertilizeCadenceDays;
+  }
+  if (updates.pruneCadenceDays !== undefined) {
+    sets.push('care.prune.cadence_days = :p');
+    values[':p'] = updates.pruneCadenceDays;
+  }
+  if (sets.length === 0) throw new ApiError(400, 'No fields to update');
+
+  try {
+    const res = await ddb.send(
+      new UpdateCommand({
+        TableName: table(),
+        Key: { PK: userPk(sub), SK: plantSk(plantId) },
+        UpdateExpression: 'SET ' + sets.join(', '),
+        ConditionExpression: 'attribute_exists(SK)',
+        ExpressionAttributeValues: values,
+        ReturnValues: 'ALL_NEW',
+      }),
+    );
+    return res.Attributes as PlantRecord;
   } catch (err) {
     if (isConditionalFailure(err)) throw new ApiError(404, 'Plant not found');
     throw err;
@@ -435,4 +491,37 @@ export async function getBuddiesForSpecies(
     }
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// Account deletion — remove every item under USER#<sub> (App Store 5.1.1(v)).
+// ---------------------------------------------------------------------------
+
+export async function deleteAllUserItems(sub: string): Promise<void> {
+  const keys: Array<{ PK: string; SK: string }> = [];
+  let startKey: QueryCommandOutput['LastEvaluatedKey'];
+  do {
+    const res = await ddb.send(
+      new QueryCommand({
+        TableName: table(),
+        KeyConditionExpression: 'PK = :pk',
+        ExpressionAttributeValues: { ':pk': userPk(sub) },
+        ProjectionExpression: 'PK, SK',
+        ExclusiveStartKey: startKey,
+      }),
+    );
+    for (const item of res.Items ?? []) {
+      keys.push({ PK: String(item.PK), SK: String(item.SK) });
+    }
+    startKey = res.LastEvaluatedKey;
+  } while (startKey);
+
+  for (let i = 0; i < keys.length; i += 25) {
+    const chunk = keys.slice(i, i + 25);
+    await ddb.send(
+      new BatchWriteCommand({
+        RequestItems: { [table()]: chunk.map((Key) => ({ DeleteRequest: { Key } })) },
+      }),
+    );
+  }
 }

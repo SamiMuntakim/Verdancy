@@ -290,6 +290,7 @@ export class VerdancyStack extends cdk.Stack {
           '@aws-sdk/lib-dynamodb',
           '@aws-sdk/client-s3',
           '@aws-sdk/client-secrets-manager',
+          '@aws-sdk/client-cognito-identity-provider',
         ],
         minify: true,
         sourceMap: true,
@@ -318,6 +319,7 @@ export class VerdancyStack extends cdk.Stack {
       environment: {
         TABLE_NAME: table.tableName,
         USER_IMAGE_BUCKET: imageBucket.bucketName,
+        USER_POOL_ID: userPool.userPoolId,
         GEMINI_API_KEY_SECRET_NAME: GEMINI_SECRET_NAME,
         IDENTIFY_MODEL_ID: 'gemini-3.5-flash',
         DIAGNOSE_MODEL_ID: 'gemini-3.5-flash',
@@ -325,13 +327,26 @@ export class VerdancyStack extends cdk.Stack {
         SUBSCRIBER_DAILY_AI_LIMIT: '50',
       },
     });
-    // Least privilege: the table, the image-bucket objects, and the Gemini key.
+    // Least privilege: the table, the image-bucket objects (+ list for account
+    // deletion), the Gemini key, and deleting the caller's own Cognito user.
     table.grantReadWriteData(routerFn);
     geminiSecret.grantRead(routerFn);
     routerFn.addToRolePolicy(
       new iam.PolicyStatement({
         actions: ['s3:GetObject', 's3:PutObject', 's3:DeleteObject'],
         resources: [imageBucket.arnForObjects('*')],
+      }),
+    );
+    routerFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['s3:ListBucket'],
+        resources: [imageBucket.bucketArn],
+      }),
+    );
+    routerFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['cognito-idp:AdminDeleteUser'],
+        resources: [userPool.userPoolArn],
       }),
     );
 
@@ -418,13 +433,13 @@ export class VerdancyStack extends cdk.Stack {
     const buddyIntegration = new HttpLambdaIntegration('BuddyIntegration', buddyFn);
 
     const jwtRoutes: ReadonlyArray<{ path: string; methods: HttpMethod[] }> = [
-      { path: '/users', methods: [HttpMethod.POST] },
+      { path: '/users', methods: [HttpMethod.POST, HttpMethod.DELETE] },
       { path: '/uploads', methods: [HttpMethod.POST] },
       { path: '/identify', methods: [HttpMethod.POST] },
       { path: '/diagnose', methods: [HttpMethod.POST] },
       { path: '/plants', methods: [HttpMethod.POST, HttpMethod.GET] },
       { path: '/plants/{plantId}/care', methods: [HttpMethod.POST] },
-      { path: '/plants/{plantId}', methods: [HttpMethod.DELETE] },
+      { path: '/plants/{plantId}', methods: [HttpMethod.DELETE, HttpMethod.PATCH] },
       { path: '/plants/{plantId}/photos', methods: [HttpMethod.POST, HttpMethod.GET] },
       { path: '/milestones', methods: [HttpMethod.POST] },
       { path: '/me/trees', methods: [HttpMethod.GET] },
