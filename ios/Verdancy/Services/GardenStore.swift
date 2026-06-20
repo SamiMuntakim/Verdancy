@@ -101,6 +101,17 @@ final class GardenStore {
         onChanged?(plants)
     }
 
+    /// Replace a plant in place (after an edit), preserving its position.
+    func update(_ plant: Plant) {
+        if let idx = plants.firstIndex(where: { $0.plantId == plant.plantId }) {
+            plants[idx] = plant
+        } else {
+            plants.insert(plant, at: 0)
+        }
+        SnapshotStore.save(GardenSnapshot(plants: plants, trees: trees))
+        onChanged?(plants)
+    }
+
     private func applyCareLocally(plantId: String, type: CareType, at date: Date) {
         guard let idx = plants.firstIndex(where: { $0.plantId == plantId }) else { return }
         let stamp = ISO.string(date)

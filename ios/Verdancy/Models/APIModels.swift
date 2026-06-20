@@ -28,6 +28,18 @@ struct BuddyResponse: Codable {
     let styleVersion: Int?
 }
 
+/// `GET /plants/{id}/photos` entry (growth timeline).
+struct PhotoEntry: Codable, Identifiable, Hashable {
+    let takenAt: String?
+    let caption: String?
+    let downloadUrl: String?
+    var id: String { takenAt ?? UUID().uuidString }
+}
+
+struct PhotosResponse: Codable {
+    let photos: [PhotoEntry]
+}
+
 // MARK: - Request bodies
 // Explicit CodingKeys so payloads match the backend field names exactly: snake_case
 // for stored attributes, camelCase for `plantId` / `milestoneId` / `kind` / `type`.
@@ -84,6 +96,22 @@ struct CreatePlantRequest: Encodable {
 
 struct CareRequest: Encodable {
     let type: String
+}
+
+/// `PATCH /plants/{id}` — only set fields are sent (synthesized `encodeIfPresent`
+/// omits nils), so untouched attributes are left alone.
+struct UpdatePlantRequest: Encodable {
+    let nickname: String?
+    let waterCadenceDays: Int?
+    let fertilizeCadenceDays: Int?
+    let pruneCadenceDays: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case nickname
+        case waterCadenceDays = "water_cadence_days"
+        case fertilizeCadenceDays = "fertilize_cadence_days"
+        case pruneCadenceDays = "prune_cadence_days"
+    }
 }
 
 struct AddPhotoRequest: Encodable {

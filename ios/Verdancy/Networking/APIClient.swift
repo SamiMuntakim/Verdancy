@@ -39,6 +39,19 @@ final class APIClient {
         _ = try await sendRaw(Endpoint("POST", "/users"))
     }
 
+    /// Full account deletion (data + S3 + Cognito identity).
+    func deleteUser() async throws {
+        _ = try await sendRaw(Endpoint("DELETE", "/users"))
+    }
+
+    func updatePlant(plantId: String, _ request: UpdatePlantRequest) async throws -> Plant {
+        try await send(Endpoint("PATCH", "/plants/\(plantId)", body: encode(request)), as: Plant.self)
+    }
+
+    func photos(plantId: String) async throws -> [PhotoEntry] {
+        try await send(Endpoint("GET", "/plants/\(plantId)/photos"), as: PhotosResponse.self).photos
+    }
+
     func listPlants() async throws -> [Plant] {
         try await send(Endpoint("GET", "/plants"), as: PlantsResponse.self).plants
     }

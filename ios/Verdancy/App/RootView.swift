@@ -13,6 +13,7 @@ struct RootView: View {
             case .signedIn: MainTabView()
             }
         }
+        .preferredColorScheme(app.appearance.colorScheme)
         .animation(.smooth, value: app.phase)
         .fullScreenCover(isPresented: $app.pendingBloom) {
             BloomCelebrationView { app.pendingBloom = false }

@@ -1,13 +1,14 @@
 import SwiftUI
 
 /// Plant detail (iOS-PRD §3.3): care schedule + mark-done, the bud, safety/lighting/
-/// fertilizer facts, delete. (Growth timeline is deferrable within MVP.)
+/// fertilizer facts, edit, growth timeline, delete.
 struct PlantDetailView: View {
     @Environment(AppModel.self) private var app
     @Environment(\.dismiss) private var dismiss
 
     let plant: Plant
     @State private var showDeleteConfirm = false
+    @State private var showEdit = false
 
     /// Re-read from the store so optimistic care updates are reflected live.
     private var current: Plant {
@@ -35,6 +36,16 @@ struct PlantDetailView: View {
                 careSection
                 factsSection
 
+                NavigationLink {
+                    GrowthTimelineView(plant: current)
+                } label: {
+                    Label("Growth timeline", systemImage: "photo.stack")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(Theme.Space.l)
+                        .card()
+                }
+                .buttonStyle(.plain)
+
                 Button(role: .destructive) {
                     showDeleteConfirm = true
                 } label: {
@@ -47,6 +58,12 @@ struct PlantDetailView: View {
         .background(Theme.Color.background)
         .navigationTitle(current.displayName)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Edit") { showEdit = true }
+            }
+        }
+        .sheet(isPresented: $showEdit) { PlantEditView(plant: current) }
         .confirmationDialog(
             "Delete \(current.displayName)?",
             isPresented: $showDeleteConfirm, titleVisibility: .visible

@@ -63,7 +63,12 @@ private struct SmartScanContent: View {
     private var content: some View {
         switch vm.phase {
         case .idle:
-            capturePrompt
+            // Diagnose is a subscriber-only feature (iOS-PRD §3.2/§7).
+            if vm.mode == .diagnose && !app.isSubscribed {
+                diagnoseGate
+            } else {
+                capturePrompt
+            }
         case .working:
             VStack(spacing: Theme.Space.m) {
                 ProgressView().tint(Theme.Color.leaf)
@@ -104,6 +109,22 @@ private struct SmartScanContent: View {
                 primary: ("Try again", { vm.reset() })
             )
         }
+    }
+
+    private var diagnoseGate: some View {
+        VStack(spacing: Theme.Space.m) {
+            Image(systemName: "stethoscope")
+                .font(.largeTitle).foregroundStyle(Theme.Color.leaf)
+            Text("Diagnose is a subscriber feature").font(.headline)
+            Text("Subscribe to get a triage plan for any ailing plant — plus unlimited identify, care reminders, and your blooming buddies.")
+                .font(.subheadline).multilineTextAlignment(.center)
+                .foregroundStyle(Theme.Color.textSecondary)
+            Button("See plans") { showPaywall = true }
+                .buttonStyle(.borderedProminent).tint(Theme.Color.leaf)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(Theme.Space.l)
+        .card()
     }
 
     private var capturePrompt: some View {

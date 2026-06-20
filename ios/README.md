@@ -43,5 +43,10 @@ Built: project scaffold + foundation (models, `APIClient`, `AuthService`, design
   seed→bloom reveal, tree-impact display, Settings.
 - **5 Referral/sharing** — milestone reporting + tree-earned celebration, `ShareLink` invites.
 
-**Still to do:** bundled bud sprite assets, account deletion (needs backend `DELETE /users`),
-RevenueCat offering config, and a **Mac/Xcode compile pass** (this was authored on Windows).
+Also closed (the remaining buildable §3/§13 items): **account deletion** (`DELETE /users` →
+sign-out), **appearance** (system/light/dark, persisted), **Diagnose gated subscriber-only**,
+**plant edit** (`PATCH /plants/{id}`), and the **growth timeline** (photos list + add).
+
+**Still to do (not codeable on Windows):** bundled bud sprite **art assets**, **RevenueCat offering
+config** in App Store Connect, and a **Mac/Xcode compile pass** (RevenueCat/Amplify API exactness
+unverified).

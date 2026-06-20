@@ -9,12 +9,17 @@ final class AppModel {
     enum Phase: Equatable { case launching, signedOut, signedIn }
     enum Tab: Hashable { case today, scan, oasis, settings }
 
+    private static let appearanceKey = "verdancy.appearance"
+
     var phase: Phase = .launching
     var selectedTab: Tab = .today
     /// Fires the one-time bloom reveal after a successful subscribe (iOS-PRD §8.4).
     var pendingBloom = false
     /// Set to the new tree total when a milestone tree is earned → transient banner.
     var treeCelebrationCount: Int?
+    /// Appearance override (iOS-PRD §3.4), persisted across launches.
+    var appearance: Appearance =
+        Appearance(rawValue: UserDefaults.standard.string(forKey: appearanceKey) ?? "") ?? .system
 
     let auth: AuthService
     let api: APIClient
@@ -114,6 +119,18 @@ final class AppModel {
             pendingBloom = true
             await reportMilestonesIfNeeded() // a subscriber with plants earns first_plant now
         }
+    }
+
+    func setAppearance(_ value: Appearance) {
+        appearance = value
+        UserDefaults.standard.set(value.rawValue, forKey: AppModel.appearanceKey)
+    }
+
+    /// Full account deletion (App Store 5.1.1(v)): the backend removes data + the
+    /// Cognito identity, then we clear local state.
+    func deleteAccount() async throws {
+        if !AppConfig.useMockAuth { try await api.deleteUser() }
+        await signOut()
     }
 
     func signOut() async {

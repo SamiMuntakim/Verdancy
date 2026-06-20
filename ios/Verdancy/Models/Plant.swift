@@ -28,6 +28,14 @@ struct Plant: Codable, Identifiable, Hashable {
               fertilizerInfo: fertilizerInfo, confidence: confidence, care: care,
               createdAt: createdAt, downloadUrl: downloadUrl, buddy: buddy)
     }
+
+    /// Copy with edited nickname + care (for the local edit path).
+    func edited(nickname: String?, care: CareMap) -> Plant {
+        Plant(plantId: plantId, commonName: commonName, species: species, nickname: nickname,
+              imageRef: imageRef, toxicity: toxicity, lightingNeeds: lightingNeeds,
+              fertilizerInfo: fertilizerInfo, confidence: confidence, care: care,
+              createdAt: createdAt, downloadUrl: downloadUrl, buddy: buddy)
+    }
 }
 
 struct CareMap: Codable, Hashable {
