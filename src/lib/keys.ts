@@ -20,6 +20,10 @@ export const quotaSk = (day: string): string => `QUOTA#${day}`;
 export const speciesPk = (species: string): string => `SPECIES#${species}`;
 export const BUDDY_SK = 'BUDDY';
 
+// Referral loop: REFCODE#<code>/OWNER maps an invite code to its owner's sub.
+export const refCodePk = (code: string): string => `REFCODE#${code}`;
+export const REF_OWNER_SK = 'OWNER';
+
 /** URL-safe slug for the species, used in the sprite S3 key. */
 export function speciesSlug(species: string): string {
   return species.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');

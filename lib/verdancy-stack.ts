@@ -362,9 +362,10 @@ export class VerdancyStack extends cdk.Stack {
         REVENUECAT_WEBHOOK_SECRET_ARN: webhookSecret.secretArn,
       },
     });
-    // Least privilege: read the webhook secret; only UpdateItem on the table.
+    // Least privilege: read the webhook secret; UpdateItem for entitlement +
+    // referral-credit writes, GetItem to read referred_by on first purchase.
     webhookSecret.grantRead(webhookFn);
-    table.grant(webhookFn, 'dynamodb:UpdateItem');
+    table.grant(webhookFn, 'dynamodb:UpdateItem', 'dynamodb:GetItem');
 
     // Plant Buddy generation Lambda — heavier (image gen + pixel processing).
     const buddyLogGroup = new logs.LogGroup(this, 'BuddyLogGroup', {
@@ -443,6 +444,8 @@ export class VerdancyStack extends cdk.Stack {
       { path: '/plants/{plantId}/photos', methods: [HttpMethod.POST, HttpMethod.GET] },
       { path: '/milestones', methods: [HttpMethod.POST] },
       { path: '/me/trees', methods: [HttpMethod.GET] },
+      { path: '/me/referral', methods: [HttpMethod.GET] },
+      { path: '/referrals/redeem', methods: [HttpMethod.POST] },
     ];
     for (const r of jwtRoutes) {
       httpApi.addRoutes({

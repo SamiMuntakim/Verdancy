@@ -2,7 +2,7 @@ import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda
 import { timingSafeEqual } from 'node:crypto';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import { json, parseJsonBody } from '../lib/http';
-import { setEntitlement } from '../lib/dynamo';
+import { setEntitlement, getMetadata, markReferralCredited, recordMilestone } from '../lib/dynamo';
 
 /**
  * RevenueCat webhook Lambda. This is the ONLY unauthenticated route (no Cognito
@@ -47,6 +47,24 @@ function toEpochSeconds(ms: unknown): number | null {
   return typeof ms === 'number' && Number.isFinite(ms) ? Math.floor(ms / 1000) : null;
 }
 
+/**
+ * Referral credit (iOS-PRD §10): when an invited friend's FIRST purchase lands,
+ * plant a tree for both. `markReferralCredited` is an atomic one-time claim, so
+ * webhook retries / duplicate events can't double-credit; the milestone writes
+ * themselves are the usual idempotent conditional ADDs.
+ */
+async function creditReferralIfAny(sub: string): Promise<void> {
+  const meta = await getMetadata(sub);
+  const inviter = meta?.referred_by;
+  if (!inviter || meta?.referral_credited) return;
+  if (!(await markReferralCredited(sub))) return; // someone else claimed it
+
+  // One tree for the new subscriber…
+  await recordMilestone(sub, 'referral_joined');
+  // …and one for the inviter, unique per referred friend.
+  await recordMilestone(inviter, `referral_${sub.slice(0, 12)}`);
+}
+
 export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGatewayProxyResultV2> => {
   // HTTP API v2 lowercases header names; check both for safety.
   const provided = event.headers?.authorization ?? event.headers?.Authorization;
@@ -79,6 +97,12 @@ export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGateway
   try {
     if (ACTIVATE.has(type)) {
       await setEntitlement(appUserId, true, toEpochSeconds(rcEvent.expiration_at_ms));
+      if (type === 'INITIAL_PURCHASE') {
+        // Best-effort: a referral-credit failure must not fail the entitlement ack.
+        await creditReferralIfAny(appUserId).catch(() => {
+          console.error('Referral credit failed');
+        });
+      }
     } else if (DEACTIVATE.has(type)) {
       await setEntitlement(appUserId, false, toEpochSeconds(rcEvent.expiration_at_ms));
     }

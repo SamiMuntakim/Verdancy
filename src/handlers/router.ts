@@ -26,6 +26,10 @@ import {
   recordMilestone,
   getTrees,
   getBuddiesForSpecies,
+  getOrCreateReferralCode,
+  getReferralOwner,
+  setReferredBy,
+  deleteReferralCode,
   type PlantRecord,
   type PlantUpdates,
 } from '../lib/dynamo';
@@ -263,9 +267,32 @@ async function handlePatchPlant(sub: string, event: APIGatewayProxyEventV2WithJW
 
 async function handleDeleteUser(sub: string) {
   // Full account deletion (App Store 5.1.1(v)): images → data → Cognito identity.
+  const meta = await getMetadata(sub);
+  if (meta?.referral_code) await deleteReferralCode(meta.referral_code);
   await deleteByPrefix(`u/${sub}/`);
   await deleteAllUserItems(sub);
   await deleteCognitoUser(sub);
+  return json(200, { ok: true });
+}
+
+// ---------------------------------------------------------------------------
+// Referral loop (iOS-PRD §10) — "invite a friend, a tree for both of you."
+// The actual tree credits happen server-side when the invited friend's first
+// purchase lands (webhook), so a bypassed client can't mint trees.
+// ---------------------------------------------------------------------------
+async function handleGetReferral(sub: string) {
+  const code = await getOrCreateReferralCode(sub);
+  return json(200, { code });
+}
+
+async function handleRedeemReferral(sub: string, event: APIGatewayProxyEventV2WithJWTAuthorizer) {
+  const body = parseJsonBody<{ code?: string }>(event);
+  const raw = asString(body.code)?.trim().toUpperCase() ?? '';
+  if (!/^[A-Z2-9]{4,16}$/.test(raw)) throw new ApiError(400, 'Invalid invite code');
+  const inviter = await getReferralOwner(raw);
+  if (!inviter) throw new ApiError(404, 'Invite code not found');
+  if (inviter === sub) throw new ApiError(400, "You can't use your own invite code");
+  await setReferredBy(sub, inviter); // 400 if one was already applied
   return json(200, { ok: true });
 }
 
@@ -312,6 +339,10 @@ export const handler = async (
         return await handleMilestone(sub, event);
       case 'GET /me/trees':
         return await handleGetTrees(sub);
+      case 'GET /me/referral':
+        return await handleGetReferral(sub);
+      case 'POST /referrals/redeem':
+        return await handleRedeemReferral(sub, event);
       default:
         return json(404, { error: 'Not Found' });
     }

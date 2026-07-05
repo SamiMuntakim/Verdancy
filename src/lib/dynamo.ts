@@ -20,6 +20,8 @@ import {
   quotaSk,
   speciesPk,
   BUDDY_SK,
+  refCodePk,
+  REF_OWNER_SK,
 } from './keys';
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
@@ -44,6 +46,9 @@ export interface UserMetadata {
   free_ai_used?: number;
   trees_pledged?: number;
   milestones?: Set<string> | string[];
+  referral_code?: string;
+  referred_by?: string;
+  referral_credited?: boolean;
 }
 
 export async function getMetadata(sub: string): Promise<UserMetadata | undefined> {
@@ -491,6 +496,119 @@ export async function getBuddiesForSpecies(
     }
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// Referral loop (iOS-PRD §10): "invite a friend — a tree for both of you."
+// The code→owner mapping is a direct-lookup REFCODE# item (no GSI needed).
+// ---------------------------------------------------------------------------
+
+// Unambiguous alphabet (no 0/O/1/I/L) for typeable invite codes.
+const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+
+function generateCode(length = 8): string {
+  let out = '';
+  for (let i = 0; i < length; i += 1) {
+    out += CODE_ALPHABET[Math.floor(Math.random() * CODE_ALPHABET.length)];
+  }
+  return out;
+}
+
+/**
+ * Return the caller's invite code, minting one on first use. The REFCODE item is
+ * claimed with a conditional put (collision-safe); METADATA takes the code via
+ * if_not_exists, so a concurrent race converges on a single stored code.
+ */
+export async function getOrCreateReferralCode(sub: string): Promise<string> {
+  const meta = await getMetadata(sub);
+  if (meta?.referral_code) return meta.referral_code;
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const code = generateCode();
+    try {
+      await ddb.send(
+        new PutCommand({
+          TableName: table(),
+          Item: { PK: refCodePk(code), SK: REF_OWNER_SK, sub, created_at: nowIso() },
+          ConditionExpression: 'attribute_not_exists(PK)',
+        }),
+      );
+    } catch (err) {
+      if (isConditionalFailure(err)) continue; // collision — try another code
+      throw err;
+    }
+    const res = await ddb.send(
+      new UpdateCommand({
+        TableName: table(),
+        Key: { PK: userPk(sub), SK: META_SK },
+        UpdateExpression: 'SET referral_code = if_not_exists(referral_code, :c)',
+        ExpressionAttributeValues: { ':c': code },
+        ReturnValues: 'ALL_NEW',
+      }),
+    );
+    // If a concurrent request won, both codes map to this sub — harmless.
+    return (res.Attributes?.referral_code as string) ?? code;
+  }
+  throw new ApiError(500, 'Could not allocate an invite code');
+}
+
+/** Resolve an invite code to its owner's sub, or undefined. */
+export async function getReferralOwner(code: string): Promise<string | undefined> {
+  const res = await ddb.send(
+    new GetCommand({ TableName: table(), Key: { PK: refCodePk(code), SK: REF_OWNER_SK } }),
+  );
+  return res.Item?.sub as string | undefined;
+}
+
+/** Record who referred this user — once, ever. Throws 400 on a second attempt. */
+export async function setReferredBy(sub: string, inviterSub: string): Promise<void> {
+  try {
+    await ddb.send(
+      new UpdateCommand({
+        TableName: table(),
+        Key: { PK: userPk(sub), SK: META_SK },
+        UpdateExpression: 'SET referred_by = :inviter',
+        ConditionExpression: 'attribute_not_exists(referred_by)',
+        ExpressionAttributeValues: { ':inviter': inviterSub },
+      }),
+    );
+  } catch (err) {
+    if (isConditionalFailure(err)) throw new ApiError(400, 'An invite code was already applied');
+    throw err;
+  }
+}
+
+/**
+ * Atomically claim the one-time referral credit for this user's conversion.
+ * Returns true exactly once (webhook retries / duplicate events get false).
+ */
+export async function markReferralCredited(sub: string): Promise<boolean> {
+  try {
+    await ddb.send(
+      new UpdateCommand({
+        TableName: table(),
+        Key: { PK: userPk(sub), SK: META_SK },
+        UpdateExpression: 'SET referral_credited = :true',
+        ConditionExpression: 'attribute_not_exists(referral_credited)',
+        ExpressionAttributeValues: { ':true': true },
+      }),
+    );
+    return true;
+  } catch (err) {
+    if (isConditionalFailure(err)) return false;
+    throw err;
+  }
+}
+
+/** Remove the code→owner mapping (account deletion cleanup). */
+export async function deleteReferralCode(code: string): Promise<void> {
+  await ddb.send(
+    new BatchWriteCommand({
+      RequestItems: {
+        [table()]: [{ DeleteRequest: { Key: { PK: refCodePk(code), SK: REF_OWNER_SK } } }],
+      },
+    }),
+  );
 }
 
 // ---------------------------------------------------------------------------

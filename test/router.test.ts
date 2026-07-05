@@ -372,8 +372,69 @@ describe('PATCH /plants/{plantId} — edit', () => {
   });
 });
 
+describe('Referral loop — GET /me/referral & POST /referrals/redeem', () => {
+  test('returns the existing code without minting', async () => {
+    ddbMock.on(GetCommand).resolves({ Item: { referral_code: 'ABCD2345' } });
+    const res = await run({ routeKey: 'GET /me/referral' });
+    expect(res.statusCode).toBe(200);
+    expect(bodyOf(res).code).toBe('ABCD2345');
+    expect(ddbMock.commandCalls(PutCommand)).toHaveLength(0);
+  });
+
+  test('mints a code on first use (REFCODE item + METADATA)', async () => {
+    ddbMock.on(GetCommand).resolves({ Item: {} });
+    ddbMock.on(PutCommand).resolves({});
+    ddbMock.on(UpdateCommand).callsFake((input) => ({
+      Attributes: { referral_code: input.ExpressionAttributeValues?.[':c'] },
+    }));
+    const res = await run({ routeKey: 'GET /me/referral' });
+    expect(res.statusCode).toBe(200);
+    const code = bodyOf(res).code as string;
+    expect(code).toMatch(/^[A-Z2-9]{8}$/);
+    const put = ddbMock.commandCalls(PutCommand)[0].args[0].input;
+    expect(put.Item?.PK).toBe(`REFCODE#${code}`);
+    expect(put.Item?.sub).toBe(SUB);
+    expect(put.ConditionExpression).toBe('attribute_not_exists(PK)');
+  });
+
+  test('redeem: records referred_by for a valid code', async () => {
+    ddbMock.on(GetCommand).resolves({ Item: { sub: 'inviter-sub' } });
+    ddbMock.on(UpdateCommand).resolves({});
+    const res = await run({ routeKey: 'POST /referrals/redeem', body: { code: 'gdkm2345' } });
+    expect(res.statusCode).toBe(200);
+    const input = ddbMock.commandCalls(UpdateCommand)[0].args[0].input;
+    expect(input.ExpressionAttributeValues?.[':inviter']).toBe('inviter-sub');
+    expect(input.ConditionExpression).toBe('attribute_not_exists(referred_by)');
+  });
+
+  test('redeem: 400 on your own code', async () => {
+    ddbMock.on(GetCommand).resolves({ Item: { sub: SUB } });
+    const res = await run({ routeKey: 'POST /referrals/redeem', body: { code: 'GDKM2345' } });
+    expect(res.statusCode).toBe(400);
+    expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(0);
+  });
+
+  test('redeem: 404 on an unknown code, 400 on garbage', async () => {
+    ddbMock.on(GetCommand).resolves({ Item: undefined });
+    expect(
+      (await run({ routeKey: 'POST /referrals/redeem', body: { code: 'GDKM2345' } })).statusCode,
+    ).toBe(404);
+    expect(
+      (await run({ routeKey: 'POST /referrals/redeem', body: { code: '!!' } })).statusCode,
+    ).toBe(400);
+  });
+
+  test('redeem: 400 when a code was already applied', async () => {
+    ddbMock.on(GetCommand).resolves({ Item: { sub: 'inviter-sub' } });
+    ddbMock.on(UpdateCommand).rejects(condFail());
+    const res = await run({ routeKey: 'POST /referrals/redeem', body: { code: 'GDKM2345' } });
+    expect(res.statusCode).toBe(400);
+  });
+});
+
 describe('DELETE /users — account deletion (App Store 5.1.1(v))', () => {
-  test('deletes S3 images, all DynamoDB items, and the Cognito user', async () => {
+  test('deletes referral code, S3 images, all DynamoDB items, and the Cognito user', async () => {
+    ddbMock.on(GetCommand).resolves({ Item: { referral_code: 'GDKM2345' } });
     s3Mock.on(ListObjectsV2Command).resolves({
       Contents: [{ Key: `u/${SUB}/p/p1/a.jpg` }],
       IsTruncated: false,
@@ -391,7 +452,15 @@ describe('DELETE /users — account deletion (App Store 5.1.1(v))', () => {
     const res = await run({ routeKey: 'DELETE /users' });
     expect(res.statusCode).toBe(200);
     expect(s3Mock.commandCalls(DeleteObjectsCommand)).toHaveLength(1);
-    expect(ddbMock.commandCalls(BatchWriteCommand)).toHaveLength(1);
+    // One BatchWrite deletes the REFCODE item, one deletes the USER# items.
+    const batches = ddbMock.commandCalls(BatchWriteCommand).map((c) => c.args[0].input);
+    expect(batches).toHaveLength(2);
+    const allKeys = batches.flatMap((b) =>
+      Object.values(b.RequestItems ?? {}).flatMap((reqs) =>
+        reqs.map((r) => r.DeleteRequest?.Key?.PK),
+      ),
+    );
+    expect(allKeys).toEqual(expect.arrayContaining(['REFCODE#GDKM2345', `USER#${SUB}`]));
     const del = cognitoMock.commandCalls(AdminDeleteUserCommand)[0].args[0].input;
     expect(del.Username).toBe(SUB);
   });

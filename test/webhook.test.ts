@@ -1,6 +1,6 @@
 import { mockClient } from 'aws-sdk-client-mock';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
-import { DynamoDBDocumentClient, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, UpdateCommand, GetCommand } from '@aws-sdk/lib-dynamodb';
 import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from 'aws-lambda';
 import { handler, _clearSecretCacheForTest } from '../src/handlers/webhook';
 
@@ -105,5 +105,52 @@ describe('entitlement updates (PRD 4.6)', () => {
     );
     expect(res.statusCode).toBe(200);
     expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(0);
+  });
+});
+
+describe('referral credit on first purchase (iOS-PRD §10)', () => {
+  const initialPurchase = { event: { type: 'INITIAL_PURCHASE', app_user_id: 'buyer-sub' } };
+
+  test('credits both parties exactly once when referred_by is set', async () => {
+    ddbMock.on(GetCommand).resolves({ Item: { referred_by: 'inviter-sub' } });
+    const res = await call({ authorization: SECRET }, initialPurchase);
+    expect(res.statusCode).toBe(200);
+
+    // setEntitlement + markReferralCredited + two milestone credits.
+    const updates = ddbMock.commandCalls(UpdateCommand).map((c) => c.args[0].input);
+    expect(updates).toHaveLength(4);
+    const milestoneIds = updates.map((u) => u.ExpressionAttributeValues?.[':mid']).filter(Boolean);
+    expect(milestoneIds).toContain('referral_joined');
+    expect(milestoneIds).toContain(`referral_${'buyer-sub'.slice(0, 12)}`);
+    const milestoneKeys = updates
+      .filter((u) => u.ExpressionAttributeValues?.[':mid'])
+      .map((u) => u.Key?.PK);
+    expect(milestoneKeys).toEqual(expect.arrayContaining(['USER#buyer-sub', 'USER#inviter-sub']));
+  });
+
+  test('no referral → only the entitlement write', async () => {
+    ddbMock.on(GetCommand).resolves({ Item: {} });
+    const res = await call({ authorization: SECRET }, initialPurchase);
+    expect(res.statusCode).toBe(200);
+    expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(1);
+  });
+
+  test('already credited → no double credit', async () => {
+    ddbMock.on(GetCommand).resolves({
+      Item: { referred_by: 'inviter-sub', referral_credited: true },
+    });
+    const res = await call({ authorization: SECRET }, initialPurchase);
+    expect(res.statusCode).toBe(200);
+    expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(1);
+  });
+
+  test('RENEWAL never triggers referral logic', async () => {
+    const res = await call(
+      { authorization: SECRET },
+      { event: { type: 'RENEWAL', app_user_id: 'buyer-sub' } },
+    );
+    expect(res.statusCode).toBe(200);
+    expect(ddbMock.commandCalls(GetCommand)).toHaveLength(0);
+    expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(1);
   });
 });
