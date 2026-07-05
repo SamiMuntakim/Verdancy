@@ -27,16 +27,18 @@ struct PaywallView: View {
 
                     VStack(spacing: Theme.Space.m) {
                         PlanRow(title: "Annual", price: "$39.99 / yr",
-                                subtitle: "Best value · 7-day free trial",
+                                subtitle: "7-day free trial · just $3.33/mo, billed yearly",
                                 selected: plan == .annual) { plan = .annual }
                         PlanRow(title: "Monthly", price: "$7.99 / mo",
-                                subtitle: "", selected: plan == .monthly) { plan = .monthly }
+                                subtitle: "Flexible, month to month",
+                                selected: plan == .monthly) { plan = .monthly }
                     }
 
                     Button {
                         Task { await subscribe() }
                     } label: {
-                        Text(isWorking ? "Starting…" : "Start 7-day free trial")
+                        Text(isWorking ? "Starting…"
+                             : plan == .annual ? "Start my 7-day free trial" : "Subscribe monthly")
                             .frame(maxWidth: .infinity).frame(height: 52)
                     }
                     .buttonStyle(.borderedProminent).tint(Theme.Color.leaf)
@@ -49,7 +51,7 @@ struct PaywallView: View {
                         Task { await app.entitlement.restore(); if app.isSubscribed { dismiss() } }
                     }
                     .font(.footnote)
-                    Text("Cancel anytime. We stagger your 10 trees across the first year.")
+                    Text("No charge until your free trial ends — cancel in two taps. Your 10 trees are planted across your first year.")
                         .font(.caption2).multilineTextAlignment(.center)
                         .foregroundStyle(Theme.Color.textSecondary)
                 }
