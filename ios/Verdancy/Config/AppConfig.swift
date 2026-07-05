@@ -21,4 +21,12 @@ enum AppConfig {
     /// purely for client-side messaging ("your first scan is free"). The server is
     /// the real gate.
     static let freeScanMessageCount = 1
+
+    /// Public site (GitHub Pages from /docs; swap for verdancy.app when the domain
+    /// is live). Legal pages are App Store requirements.
+    static let siteBaseURL = "https://samimuntakim.github.io/Verdancy"
+    static let privacyURL = URL(string: "\(siteBaseURL)/privacy.html")!
+    static let termsURL = URL(string: "\(siteBaseURL)/terms.html")!
+    static let supportURL = URL(string: "\(siteBaseURL)/support.html")!
+    static let treeCounterURL = URL(string: "\(siteBaseURL)/trees.html")!
 }

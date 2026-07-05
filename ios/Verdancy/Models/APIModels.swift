@@ -40,6 +40,11 @@ struct PhotosResponse: Codable {
     let photos: [PhotoEntry]
 }
 
+/// `GET /me/referral` — the caller's shareable invite code.
+struct ReferralCode: Codable {
+    let code: String
+}
+
 // MARK: - Request bodies
 // Explicit CodingKeys so payloads match the backend field names exactly: snake_case
 // for stored attributes, camelCase for `plantId` / `milestoneId` / `kind` / `type`.
@@ -130,4 +135,8 @@ struct MilestoneRequest: Encodable {
 
 struct BuddyRequest: Encodable {
     let species: String
+}
+
+struct RedeemInviteRequest: Encodable {
+    let code: String
 }

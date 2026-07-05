@@ -1,9 +1,9 @@
 import SwiftUI
 
 /// The per-plant Plant Bud (iOS-PRD §9). Two states: a **dormant closed bud** before
-/// subscribing (the locked teaser) and the **bloomed buddy** after. The bloom
-/// animation + the bundled starter sprite set land in Phase 4; this renders symbolic
-/// placeholders (swap in the real pixel sprites then).
+/// subscribing (the locked teaser) and the **bloomed buddy** after. Uses the bundled
+/// pixel sprites (starter set + generic fallback); a rare species with a generated
+/// remote sprite (backend Appendix A) is preferred when available.
 ///
 /// Framing rule (§8): always "look what's growing for you" — never punitive.
 struct BudView: View {
@@ -25,25 +25,30 @@ struct BudView: View {
         if isSubscribed {
             if let urlString = plant.buddy?.spriteUrl, let url = URL(string: urlString) {
                 AsyncImage(url: url) { image in
-                    image.resizable().interpolation(.none).scaledToFit().padding(size * 0.14)
+                    image.resizable().interpolation(.none).scaledToFit()
                 } placeholder: {
-                    bloomedFallback
+                    bundledBloom
                 }
+                .padding(size * 0.08)
             } else {
-                bloomedFallback
+                bundledBloom.padding(size * 0.08)
             }
         } else {
-            // Dormant, "forming," not yet open.
-            Image(systemName: "circle.hexagongrid.fill")
-                .font(.system(size: size * 0.5))
-                .foregroundStyle(Theme.Color.leafDeep.opacity(0.45))
+            sprite(BudSprites.dormant)
+                .padding(size * 0.08)
+                .opacity(0.85)
         }
     }
 
-    private var bloomedFallback: some View {
-        Image(systemName: "camera.macro")
-            .font(.system(size: size * 0.5))
-            .foregroundStyle(Theme.Color.leaf)
+    private var bundledBloom: some View {
+        sprite(BudSprites.bloomAsset(for: plant.species))
+    }
+
+    private func sprite(_ name: String) -> some View {
+        Image(name)
+            .resizable()
+            .interpolation(.none) // crisp pixel art
+            .scaledToFit()
     }
 }
 
@@ -51,6 +56,8 @@ struct BudView: View {
     HStack(spacing: 24) {
         BudView(plant: .sample, isSubscribed: false, size: 64)
         BudView(plant: .sample, isSubscribed: true, size: 64)
+        BudView(plant: .sampleSnake, isSubscribed: true, size: 64)
+        BudView(plant: .sampleUnknown, isSubscribed: true, size: 64)
     }
     .padding()
 }

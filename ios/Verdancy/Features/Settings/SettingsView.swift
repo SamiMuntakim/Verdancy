@@ -8,6 +8,10 @@ struct SettingsView: View {
     @State private var showDeleteConfirm = false
     @State private var deleting = false
     @State private var deleteError: String?
+    @State private var inviteCodeInput = ""
+    @State private var redeeming = false
+    @State private var redeemMessage: String?
+    @State private var redeemSucceeded = false
 
     private var totalTrees: Int {
         (app.isSubscribed ? 10 : 0) + app.garden.trees.treesPledged
@@ -50,17 +54,32 @@ struct SettingsView: View {
                 Section("Your impact") {
                     LabeledContent("Trees pledged", value: "\(totalTrees)")
                     ForEach(app.garden.trees.milestones, id: \.self) { milestone in
-                        Label(milestone.replacingOccurrences(of: "_", with: " ").capitalized,
-                              systemImage: "tree.fill")
+                        Label(milestoneLabel(milestone), systemImage: "tree.fill")
                     }
-                    if let url = URL(string: "https://verdancy.app/trees") {
-                        Link("View the public tree counter", destination: url)
-                    }
+                    Link("View the public tree counter", destination: AppConfig.treeCounterURL)
                 }
 
                 Section("Grow the forest") {
-                    ShareLink(item: Invite.url, message: Text(Invite.message)) {
+                    ShareLink(
+                        item: Invite.url,
+                        message: Text(Invite.message(code: app.referralCode))
+                    ) {
                         Label("Invite a friend — a tree for both of you", systemImage: "gift.fill")
+                    }
+                    if let code = app.referralCode {
+                        LabeledContent("Your invite code", value: code)
+                    }
+                    HStack {
+                        TextField("Have a code? Enter it", text: $inviteCodeInput)
+                            .textInputAutocapitalization(.characters)
+                            .autocorrectionDisabled()
+                        Button("Apply") { Task { await redeemInvite() } }
+                            .disabled(inviteCodeInput.trimmingCharacters(in: .whitespaces).isEmpty
+                                      || redeeming)
+                    }
+                    if let redeemMessage {
+                        Text(redeemMessage).font(.footnote)
+                            .foregroundStyle(redeemSucceeded ? Theme.Color.leaf : Theme.Color.danger)
                     }
                 }
 
@@ -76,12 +95,9 @@ struct SettingsView: View {
                 }
 
                 Section("About") {
-                    if let url = URL(string: "https://verdancy.app/privacy") {
-                        Link("Privacy Policy", destination: url)
-                    }
-                    if let url = URL(string: "https://verdancy.app/terms") {
-                        Link("Terms of Service", destination: url)
-                    }
+                    Link("Privacy Policy", destination: AppConfig.privacyURL)
+                    Link("Terms of Service", destination: AppConfig.termsURL)
+                    Link("Support", destination: AppConfig.supportURL)
                     LabeledContent("Version", value: appVersion)
                 }
             }
@@ -111,6 +127,28 @@ struct SettingsView: View {
 
     private var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+    }
+
+    private func milestoneLabel(_ id: String) -> String {
+        if id.hasPrefix("referral_") { return id == "referral_joined" ? "Joined Via Invite" : "Friend Invited" }
+        return id.replacingOccurrences(of: "_", with: " ").capitalized
+    }
+
+    private func redeemInvite() async {
+        redeeming = true
+        redeemMessage = nil
+        let code = inviteCodeInput.trimmingCharacters(in: .whitespaces).uppercased()
+        do {
+            if !AppConfig.useMockAuth { try await app.api.redeemInvite(code: code) }
+            redeemSucceeded = true
+            redeemMessage = "Invite applied — a tree gets planted for you both when you subscribe. 🌳"
+            inviteCodeInput = ""
+            Haptics.success()
+        } catch {
+            redeemSucceeded = false
+            redeemMessage = (error as? APIError)?.userMessage ?? "That code didn't work."
+        }
+        redeeming = false
     }
 }
 

@@ -32,5 +32,18 @@
 	<string>Verdancy uses the camera to identify your plants and diagnose problems.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Verdancy lets you pick a plant photo from your library to identify or diagnose it.</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.verdancy.app.auth</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>verdancy</string>
+			</array>
+		</dict>
+	</array>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 </dict>
 </plist>

@@ -103,6 +103,17 @@ final class APIClient {
                        as: BuddyResponse.self)
     }
 
+    /// The caller's invite code (minted server-side on first use).
+    func referralCode() async throws -> String {
+        try await send(Endpoint("GET", "/me/referral"), as: ReferralCode.self).code
+    }
+
+    /// Apply a friend's invite code (the tree credits land on first purchase).
+    func redeemInvite(code: String) async throws {
+        _ = try await sendRaw(Endpoint("POST", "/referrals/redeem",
+                                       body: encode(RedeemInviteRequest(code: code))))
+    }
+
     // MARK: - Direct S3 (presigned URLs — bytes never go through the API)
 
     func uploadImage(to urlString: String, jpeg: Data) async throws {

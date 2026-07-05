@@ -20,6 +20,8 @@ final class AppModel {
     /// Appearance override (iOS-PRD §3.4), persisted across launches.
     var appearance: Appearance =
         Appearance(rawValue: UserDefaults.standard.string(forKey: appearanceKey) ?? "") ?? .system
+    /// The caller's invite code (fetched lazily; included in share messages).
+    var referralCode: String?
 
     let auth: AuthService
     let api: APIClient
@@ -99,6 +101,7 @@ final class AppModel {
             phase = .signedIn
             if let sub = await auth.userId() { await entitlement.login(userId: sub) }
             await garden.refresh()
+            await fetchReferralCode()
         } else {
             phase = .signedOut
         }
@@ -110,6 +113,16 @@ final class AppModel {
         if let sub = await auth.userId() { await entitlement.login(userId: sub) }
         phase = .signedIn
         await garden.refresh()
+        await fetchReferralCode()
+    }
+
+    func fetchReferralCode() async {
+        guard referralCode == nil else { return }
+        if AppConfig.useMockAuth {
+            referralCode = "PLANT4U2"
+        } else {
+            referralCode = try? await api.referralCode()
+        }
     }
 
     /// Start the trial / purchase, then trigger the bloom on success.
@@ -143,6 +156,7 @@ final class AppModel {
         garden.trees = .empty
         knewPlants = false
         treeCelebrationCount = nil
+        referralCode = nil
         phase = .signedOut
     }
 }

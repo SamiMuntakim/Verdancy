@@ -3,6 +3,7 @@ import SwiftUI
 /// The Day-0 post-purchase payoff (iOS-PRD §8.4/§9): the dormant bud opens into the
 /// buddy. Wholesome framing — "look what's growing for you," never punitive.
 struct BloomCelebrationView: View {
+    @Environment(AppModel.self) private var app
     let onDone: () -> Void
 
     @State private var bloomed = false
@@ -16,13 +17,15 @@ struct BloomCelebrationView: View {
                 ZStack {
                     Circle()
                         .fill(Theme.Color.leaf.opacity(0.15))
-                        .frame(width: 200, height: 200)
+                        .frame(width: 220, height: 220)
                         .scaleEffect(bloomed ? 1.0 : 0.5)
-                    Image(systemName: bloomed ? "camera.macro" : "circle.hexagongrid.fill")
-                        .font(.system(size: 96))
-                        .foregroundStyle(bloomed ? Theme.Color.leaf : Theme.Color.leafDeep.opacity(0.6))
+                    Image(bloomed ? BudSprites.generic : BudSprites.dormant)
+                        .resizable()
+                        .interpolation(.none) // crisp pixel art
+                        .scaledToFit()
+                        .frame(width: 160, height: 160)
                         .scaleEffect(bloomed ? 1.0 : 0.7)
-                        .rotationEffect(.degrees(bloomed ? 0 : -18))
+                        .rotationEffect(.degrees(bloomed ? 0 : -10))
                 }
 
                 VStack(spacing: Theme.Space.s) {
@@ -42,7 +45,7 @@ struct BloomCelebrationView: View {
                     Button("Let's grow", action: onDone)
                         .buttonStyle(.borderedProminent)
                         .tint(Theme.Color.leaf)
-                    ShareLink(item: Invite.url, message: Text(Invite.message)) {
+                    ShareLink(item: Invite.url, message: Text(Invite.message(code: app.referralCode))) {
                         Label("Share the news", systemImage: "square.and.arrow.up")
                     }
                     .font(.subheadline)
@@ -64,4 +67,5 @@ struct BloomCelebrationView: View {
 
 #Preview {
     BloomCelebrationView(onDone: {})
+        .environment(AppModel(auth: MockAuthService(startSignedIn: true)))
 }

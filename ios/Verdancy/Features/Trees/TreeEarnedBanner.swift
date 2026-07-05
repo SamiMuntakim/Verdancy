@@ -3,6 +3,7 @@ import SwiftUI
 /// Transient celebration when a milestone tree is earned (iOS-PRD §10) — a natural,
 /// non-arbitrary sharing moment.
 struct TreeEarnedBanner: View {
+    @Environment(AppModel.self) private var app
     let total: Int
 
     var body: some View {
@@ -15,7 +16,7 @@ struct TreeEarnedBanner: View {
                     .font(.caption).foregroundStyle(.white.opacity(0.9))
             }
             Spacer()
-            ShareLink(item: Invite.url, message: Text(Invite.message)) {
+            ShareLink(item: Invite.url, message: Text(Invite.message(code: app.referralCode))) {
                 Image(systemName: "square.and.arrow.up").foregroundStyle(.white)
             }
         }
