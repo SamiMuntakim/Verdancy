@@ -102,14 +102,7 @@ In `ios/Verdancy/`:
 2. **`Resources/amplifyconfiguration.json`** — copy from `amplifyconfiguration.template.json` and fill
    in: `PoolId` = `us-west-1_3nSrmRffE`, `AppClientId` = `6jsmcp3h5g51brqas321f94u3`, `Region` =
    `us-west-1`, `WebDomain` = `PREFIX.auth.us-west-1.amazoncognito.com`. (The real file is gitignored.)
-3. **URL scheme for the auth callback** — add to `Resources/Info.plist` so the `verdancy://auth/callback`
-   redirect returns to the app:
-   ```xml
-   <key>CFBundleURLTypes</key>
-   <array><dict>
-     <key>CFBundleURLSchemes</key><array><string>verdancy</string></array>
-   </dict></array>
-   ```
+3. **URL scheme** — already in `Info.plist` (`verdancy://`), nothing to do.
 4. **Capability:** Signing & Capabilities → **+ Capability → Sign in with Apple** (the entitlement is
    already in `Verdancy.entitlements`; this links it to your App ID).
 5. `xcodegen generate` (if you changed `project.yml`/Info.plist) and run.
@@ -148,6 +141,17 @@ identifies/saves a plant. (`scripts/smoke-api.mjs` from the repo root is a quick
 and the webhook flips `entitlement_active` server-side.
 
 ---
+
+## Milestone D0 — enable the public site (2 min, from any machine)
+
+The app's Privacy Policy / Terms / Support / tree-counter links point at GitHub Pages, and Apple
+requires the privacy + support URLs to be live at review time:
+
+1. GitHub → the Verdancy repo → **Settings → Pages**.
+2. Source: **Deploy from a branch** → Branch **main**, folder **/docs** → Save.
+3. After a minute, verify <https://samimuntakim.github.io/Verdancy/privacy.html> loads.
+
+(When you buy `verdancy.app`, point Pages at the custom domain and update `AppConfig.siteBaseURL`.)
 
 ## Milestone D — ship
 
