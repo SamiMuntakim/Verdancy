@@ -1,6 +1,7 @@
 import Foundation
 import Amplify
 import AWSCognitoAuthPlugin
+import AWSPluginsCore // AuthCognitoTokensProvider lives here, not in the plugin module
 import AuthenticationServices
 
 /// Cognito-backed auth via Amplify Swift (Auth only). Sign in with Apple is

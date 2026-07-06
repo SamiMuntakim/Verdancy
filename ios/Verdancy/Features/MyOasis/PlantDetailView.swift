@@ -9,6 +9,7 @@ struct PlantDetailView: View {
     let plant: Plant
     @State private var showDeleteConfirm = false
     @State private var showEdit = false
+    @State private var showPaywall = false
 
     /// Re-read from the store so optimistic care updates are reflected live.
     private var current: Plant {
@@ -30,7 +31,13 @@ struct PlantDetailView: View {
                         Text(current.commonName).foregroundStyle(Theme.Color.textSecondary)
                     }
                     Spacer()
+                    // iOS-PRD §8.3: tapping the dormant bud is a paywall moment —
+                    // framed as "help it bloom," never punitive.
                     BudView(plant: current, isSubscribed: app.isSubscribed, size: 56)
+                        .onTapGesture {
+                            if !app.isSubscribed { showPaywall = true }
+                        }
+                        .sheet(isPresented: $showPaywall) { PaywallView() }
                 }
 
                 careSection

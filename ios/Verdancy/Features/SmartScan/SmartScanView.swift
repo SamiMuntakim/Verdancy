@@ -44,6 +44,8 @@ private struct SmartScanContent: View {
             .sheet(item: $saveContext) { ctx in
                 SavePlantSheet(card: ctx.card, jpeg: ctx.jpeg) {
                     vm.reset()
+                    // iOS-PRD §3.2: land where the plant (and its bud) now lives.
+                    app.selectedTab = .oasis
                 }
             }
             .onChange(of: photoItem) { _, item in

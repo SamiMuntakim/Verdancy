@@ -48,3 +48,5 @@ targets:
         product: Amplify
       - package: Amplify
         product: AWSCognitoAuthPlugin
+      - package: Amplify
+        product: AWSPluginsCore
