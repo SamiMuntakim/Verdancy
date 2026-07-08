@@ -22,6 +22,13 @@ enum AppConfig {
     /// the real gate.
     static let freeScanMessageCount = 1
 
+    /// Named planting partner (iOS-PRD §10: provably real trees, never vague).
+    static let plantingPartner = "One Tree Planted"
+
+    /// Flip on once real App Store reviews exist — never show fabricated social
+    /// proof. Gates the rating row on the paywall.
+    static let showPaywallRating = false
+
     /// Public site (GitHub Pages from /docs; swap for verdancy.app when the domain
     /// is live). Legal pages are App Store requirements.
     static let siteBaseURL = "https://samimuntakim.github.io/Verdancy"

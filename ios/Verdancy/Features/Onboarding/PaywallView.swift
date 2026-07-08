@@ -39,6 +39,8 @@ struct PaywallView: View {
                     .padding(Theme.Space.l)
                     .card()
 
+                    SocialProofCard()
+
                     VStack(spacing: Theme.Space.m) {
                         PlanRow(title: "Annual", price: "$39.99 / yr",
                                 subtitle: "7-day free trial · just $3.33/mo, billed yearly",
@@ -92,6 +94,52 @@ struct PaywallView: View {
             self.error = "Couldn't start the trial. Please try again."
         }
         isWorking = false
+    }
+}
+
+/// Honest social proof (iOS-PRD §8/§10): named partner + a public, verifiable tree
+/// counter. The App Store rating row stays off until real reviews exist.
+struct SocialProofCard: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.m) {
+            if AppConfig.showPaywallRating {
+                HStack(spacing: Theme.Space.s) {
+                    ForEach(0..<5, id: \.self) { _ in
+                        Image(systemName: "star.fill")
+                            .font(.caption)
+                            .foregroundStyle(Theme.Color.warning)
+                    }
+                    Text("Loved by plant parents")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(Theme.Color.textSecondary)
+                }
+            }
+            HStack(spacing: Theme.Space.m) {
+                Image(systemName: "checkmark.seal.fill")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Theme.Color.leaf)
+                    .frame(width: 28, height: 28)
+                    .background(Theme.Color.leaf.opacity(0.12), in: Circle())
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Real trees, publicly counted")
+                        .font(.subheadline.weight(.semibold))
+                    Text("Planted with \(AppConfig.plantingPartner) — every tree shows on our live public counter.")
+                        .font(.caption)
+                        .foregroundStyle(Theme.Color.textSecondary)
+                }
+            }
+            Link(destination: AppConfig.treeCounterURL) {
+                HStack(spacing: Theme.Space.xs) {
+                    Text("See the live tree counter")
+                    Image(systemName: "arrow.up.right")
+                }
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(Theme.Color.leaf)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(Theme.Space.l)
+        .card()
     }
 }
 
