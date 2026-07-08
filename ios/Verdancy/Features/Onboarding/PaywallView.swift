@@ -79,12 +79,14 @@ struct PaywallView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }
             }
+            .onAppear { Analytics.log("paywall_viewed") }
         }
     }
 
     private func subscribe() async {
         isWorking = true
         error = nil
+        Analytics.log("trial_start_tapped", ["plan": plan == .annual ? "annual" : "monthly"])
         do {
             // Starts the trial via RevenueCat (or mock), then the bloom reveal fires
             // from RootView via app.pendingBloom. The server stays the access authority.

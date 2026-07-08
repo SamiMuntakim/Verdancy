@@ -77,6 +77,7 @@ final class GardenStore {
 
     /// Optimistically mark a task done, then sync; refetch on failure.
     func logCare(plant: Plant, type: CareType) async {
+        Analytics.log("care_logged", ["type": type.rawValue])
         applyCareLocally(plantId: plant.plantId, type: type, at: Date())
         onChanged?(plants) // optimistic — update streak + reminders immediately
         do {

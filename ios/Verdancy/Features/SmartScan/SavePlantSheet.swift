@@ -88,6 +88,7 @@ struct SavePlantSheet: View {
                 let plant = try await app.api.savePlant(request)
                 app.garden.insert(plant)
             }
+            Analytics.log("plant_saved", ["unidentified": String(card.isUnidentified)])
             Haptics.success()
             onSaved()
             dismiss()

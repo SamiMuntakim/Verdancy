@@ -53,15 +53,19 @@ struct OnboardingView: View {
                 .padding(.bottom, Theme.Space.xl)
             }
         }
+        .onAppear { Analytics.log("onboarding_viewed") }
     }
 
     private func signIn() async {
         isWorking = true
         error = nil
+        Analytics.log("sign_in_started")
         do {
             try await app.signInWithApple()
+            Analytics.log("sign_in_succeeded")
         } catch {
             self.error = "Sign in failed. Please try again."
+            Analytics.log("sign_in_failed")
         }
         isWorking = false
     }

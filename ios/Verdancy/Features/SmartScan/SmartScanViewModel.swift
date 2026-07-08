@@ -34,21 +34,33 @@ final class SmartScanViewModel {
         }
         let base64 = ImagePipeline.base64(from: jpeg)
         phase = .working(image)
+        Analytics.log("scan_started", ["mode": mode.rawValue])
         do {
             switch mode {
             case .identify:
                 let card = try await api.identify(imageBase64: base64)
                 phase = .identified(card, jpeg: jpeg)
+                Analytics.log("scan_succeeded", [
+                    "mode": mode.rawValue,
+                    "confidence": card.confidence,
+                    "unidentified": String(card.isUnidentified),
+                ])
                 Haptics.success()
             case .diagnose:
                 let card = try await api.diagnose(imageBase64: base64)
                 phase = .diagnosed(card, jpeg: jpeg)
+                Analytics.log("scan_succeeded", [
+                    "mode": mode.rawValue,
+                    "confidence": card.confidence,
+                ])
                 Haptics.success()
             }
         } catch APIError.paywall {
             phase = .paywall
+            Analytics.log("scan_gate_hit", ["gate": "paywall"])
         } catch APIError.rateLimited {
             phase = .rateLimited
+            Analytics.log("scan_gate_hit", ["gate": "rate_limited"])
         } catch {
             // Offline/mock mode: show sample results so the loop is demoable.
             if AppConfig.useMockAuth {
@@ -58,6 +70,7 @@ final class SmartScanViewModel {
                 }
             } else {
                 phase = .error((error as? APIError)?.userMessage ?? "Something went wrong.")
+                Analytics.log("scan_error", ["mode": mode.rawValue])
             }
         }
     }

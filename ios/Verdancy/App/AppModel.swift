@@ -89,6 +89,7 @@ final class AppModel {
             reported.insert(id)
             reportedMilestones = reported
             treeCelebrationCount = totalTrees
+            Analytics.log("milestone_earned", ["id": id])
             Haptics.celebrate()
         }
     }
@@ -129,6 +130,7 @@ final class AppModel {
     func startTrial(_ plan: EntitlementService.Plan) async throws {
         let active = try await entitlement.purchase(plan)
         if active {
+            Analytics.log("trial_started", ["plan": plan == .annual ? "annual" : "monthly"])
             pendingBloom = true
             await reportMilestonesIfNeeded() // a subscriber with plants earns first_plant now
         }
