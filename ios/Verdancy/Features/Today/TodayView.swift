@@ -41,6 +41,13 @@ struct TodayView: View {
                                     } label: { Label("Done", systemImage: "checkmark") }
                                     .tint(Theme.Color.leaf)
                                 }
+                                .swipeActions(edge: .leading) {
+                                    Button {
+                                        app.garden.snooze(plant: item.plant, type: item.type)
+                                        Haptics.tap()
+                                    } label: { Label("Tomorrow", systemImage: "moon.zzz.fill") }
+                                    .tint(Theme.Color.terracotta)
+                                }
                         }
                     }
                 }

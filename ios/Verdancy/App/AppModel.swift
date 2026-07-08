@@ -49,7 +49,8 @@ final class AppModel {
             let nowHasPlants = !plants.isEmpty
             let isFirstPlant = nowHasPlants && !self.knewPlants
             self.knewPlants = nowHasPlants
-            self.streak.refresh(allCaughtUp: self.garden.dueItems.isEmpty)
+            // Snoozed tasks still count as due for the streak (no gaming it).
+            self.streak.refresh(allCaughtUp: self.garden.dueItems(includingSnoozed: true).isEmpty)
             Task {
                 if isFirstPlant { await self.notifications.requestAuthorizationIfNeeded() }
                 await self.notifications.reschedule(for: plants)

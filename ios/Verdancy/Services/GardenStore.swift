@@ -62,13 +62,49 @@ final class GardenStore {
         onChanged?(plants)
     }
 
-    /// Today's due list — overdue first (iOS-PRD §3.1).
-    var dueItems: [DueItem] {
+    // MARK: Snooze ("not today")
+
+    private static let snoozeKey = "verdancy.snoozes"
+
+    /// `plantId-type` → date until which the task is hidden from Today. Local-only;
+    /// snoozing never counts as caught up for the streak (that would game it).
+    private(set) var snoozes: [String: Date] = loadSnoozes()
+
+    private static func loadSnoozes() -> [String: Date] {
+        let raw = UserDefaults.standard.dictionary(forKey: snoozeKey) ?? [:]
+        let now = Date()
+        return raw.compactMapValues { $0 as? Date }.filter { $0.value > now }
+    }
+
+    private func snoozeId(_ plantId: String, _ type: CareType) -> String {
+        "\(plantId)-\(type.rawValue)"
+    }
+
+    /// Hide a due task until tomorrow — guilt relief, not completion.
+    func snooze(plant: Plant, type: CareType) {
+        let cal = Calendar.current
+        guard let until = cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: Date()))
+        else { return }
+        snoozes[snoozeId(plant.plantId, type)] = until
+        UserDefaults.standard.set(snoozes, forKey: Self.snoozeKey)
+        Analytics.log("care_snoozed", ["type": type.rawValue])
+    }
+
+    // MARK: Due list
+
+    /// Today's due list — overdue first (iOS-PRD §3.1), snoozed tasks hidden.
+    var dueItems: [DueItem] { dueItems(includingSnoozed: false) }
+
+    /// The full due list. The streak must use `includingSnoozed: true` so snoozing
+    /// everything can't fake an "all caught up" day.
+    func dueItems(includingSnoozed: Bool) -> [DueItem] {
         let now = Date()
         var items: [DueItem] = []
         for plant in plants {
             for type in CareType.allCases {
                 guard let due = plant.care.task(for: type).nextDue(now: now), due <= now else { continue }
+                if !includingSnoozed,
+                   let until = snoozes[snoozeId(plant.plantId, type)], until > now { continue }
                 items.append(DueItem(plant: plant, type: type, dueDate: due))
             }
         }
@@ -78,6 +114,8 @@ final class GardenStore {
     /// Optimistically mark a task done, then sync; refetch on failure.
     func logCare(plant: Plant, type: CareType) async {
         Analytics.log("care_logged", ["type": type.rawValue])
+        snoozes.removeValue(forKey: snoozeId(plant.plantId, type))
+        UserDefaults.standard.set(snoozes, forKey: Self.snoozeKey)
         applyCareLocally(plantId: plant.plantId, type: type, at: Date())
         onChanged?(plants) // optimistic — update streak + reminders immediately
         do {
