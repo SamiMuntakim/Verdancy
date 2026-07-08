@@ -73,11 +73,13 @@ private struct SmartScanContent: View {
             }
         case .working:
             VStack(spacing: Theme.Space.m) {
+                IconBadge(systemImage: vm.mode == .identify ? "sparkles" : "stethoscope")
                 ProgressView().tint(Theme.Color.leaf)
                 Text(vm.mode == .identify ? "Identifying…" : "Diagnosing…")
+                    .font(.subheadline.weight(.medium))
                     .foregroundStyle(Theme.Color.textSecondary)
             }
-            .frame(maxWidth: .infinity, minHeight: 220)
+            .frame(maxWidth: .infinity, minHeight: 260)
             .card()
         case let .identified(card, jpeg):
             VStack(spacing: Theme.Space.m) {
@@ -87,7 +89,7 @@ private struct SmartScanContent: View {
         case let .diagnosed(card):
             VStack(spacing: Theme.Space.m) {
                 DiagnosisCardView(card: card)
-                Button("Done") { vm.reset() }.buttonStyle(.bordered)
+                Button("Done") { vm.reset() }.buttonStyle(.secondary)
             }
         case .paywall:
             messageCard(
@@ -115,53 +117,66 @@ private struct SmartScanContent: View {
 
     private var diagnoseGate: some View {
         VStack(spacing: Theme.Space.m) {
-            Image(systemName: "stethoscope")
-                .font(.largeTitle).foregroundStyle(Theme.Color.leaf)
-            Text("Diagnose is a subscriber feature").font(.headline)
-            Text("Subscribe to get a triage plan for any ailing plant — plus unlimited identify, care reminders, and your blooming buddies.")
-                .font(.subheadline).multilineTextAlignment(.center)
-                .foregroundStyle(Theme.Color.textSecondary)
+            IconBadge(systemImage: "stethoscope")
+            VStack(spacing: Theme.Space.xs) {
+                Text("Diagnose is a subscriber feature").font(.title3.weight(.semibold))
+                Text("Subscribe to get a triage plan for any ailing plant — plus unlimited identify, care reminders, and your blooming buddies.")
+                    .font(.subheadline).multilineTextAlignment(.center)
+                    .foregroundStyle(Theme.Color.textSecondary)
+            }
             Button("See plans") { showPaywall = true }
-                .buttonStyle(.borderedProminent).tint(Theme.Color.leaf)
+                .buttonStyle(.primary)
+                .padding(.top, Theme.Space.s)
         }
         .frame(maxWidth: .infinity)
-        .padding(Theme.Space.l)
+        .padding(Theme.Space.xl)
         .card()
     }
 
     private var capturePrompt: some View {
         VStack(spacing: Theme.Space.l) {
-            VStack(spacing: Theme.Space.s) {
-                Image(systemName: "camera.viewfinder")
-                    .font(.system(size: 52))
-                    .foregroundStyle(Theme.Color.leaf)
-                Text(vm.mode == .identify ? "Identify a plant" : "Diagnose a problem")
-                    .font(.headline)
-                Text(vm.mode == .identify
-                     ? "Snap a clear, well-lit photo of the leaves."
-                     : "Photograph the affected leaves for a triage plan.")
-                    .font(.subheadline)
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(Theme.Color.textSecondary)
+            VStack(spacing: Theme.Space.m) {
+                IconBadge(systemImage: "camera.viewfinder", size: 84)
+                    .padding(Theme.Space.l)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
+                            .strokeBorder(
+                                Theme.Color.leaf.opacity(0.35),
+                                style: StrokeStyle(lineWidth: 1.5, dash: [6, 6])
+                            )
+                    )
+                VStack(spacing: Theme.Space.xs) {
+                    Text(vm.mode == .identify ? "Identify a plant" : "Diagnose a problem")
+                        .font(.title3.weight(.semibold))
+                    Text(vm.mode == .identify
+                         ? "Snap a clear, well-lit photo of the leaves."
+                         : "Photograph the affected leaves for a triage plan.")
+                        .font(.subheadline)
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(Theme.Color.textSecondary)
+                }
             }
-            .frame(maxWidth: .infinity, minHeight: 180)
+            .frame(maxWidth: .infinity, minHeight: 240)
+            .padding(Theme.Space.l)
             .card()
 
-            HStack(spacing: Theme.Space.m) {
+            VStack(spacing: Theme.Space.m) {
                 Button {
                     showCamera = true
                 } label: {
                     Label("Take Photo", systemImage: "camera.fill")
-                        .frame(maxWidth: .infinity).frame(height: 48)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(Theme.Color.leaf)
+                .buttonStyle(.primary)
 
                 PhotosPicker(selection: $photoItem, matching: .images) {
-                    Label("Library", systemImage: "photo.on.rectangle")
-                        .frame(maxWidth: .infinity).frame(height: 48)
+                    Label("Choose from Library", systemImage: "photo.on.rectangle")
+                        .font(.headline)
+                        .foregroundStyle(Theme.Color.leaf)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 52)
+                        .background(Theme.Color.leaf.opacity(0.12))
+                        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.button, style: .continuous))
                 }
-                .buttonStyle(.bordered)
             }
         }
     }
@@ -170,29 +185,23 @@ private struct SmartScanContent: View {
     private func identifyActions(card: CareCard, jpeg: Data) -> some View {
         if card.isUnidentified {
             // iOS-PRD §6: never auto-apply a schedule; offer a retake.
-            VStack(spacing: Theme.Space.s) {
-                Button {
-                    saveContext = SaveContext(card: card, jpeg: jpeg)
-                } label: {
-                    Text("Save as Unidentified").frame(maxWidth: .infinity).frame(height: 48)
-                }
-                .buttonStyle(.bordered)
+            VStack(spacing: Theme.Space.m) {
                 Button("Retake photo") { vm.reset() }
-                    .buttonStyle(.borderedProminent)
-                    .tint(Theme.Color.leaf)
+                    .buttonStyle(.primary)
+                Button("Save as Unidentified") {
+                    saveContext = SaveContext(card: card, jpeg: jpeg)
+                }
+                .buttonStyle(.secondary)
             }
         } else {
-            HStack(spacing: Theme.Space.m) {
-                Button("Discard") { vm.reset() }
-                    .buttonStyle(.bordered)
-                    .frame(maxWidth: .infinity)
-                Button {
+            VStack(spacing: Theme.Space.m) {
+                Button("Save plant") {
                     saveContext = SaveContext(card: card, jpeg: jpeg)
-                } label: {
-                    Text("Save plant").frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(Theme.Color.leaf)
+                .buttonStyle(.primary)
+                Button("Discard") { vm.reset() }
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(Theme.Color.textSecondary)
             }
         }
     }
@@ -201,15 +210,18 @@ private struct SmartScanContent: View {
         icon: String, title: String, message: String, primary: (String, () -> Void)
     ) -> some View {
         VStack(spacing: Theme.Space.m) {
-            Image(systemName: icon).font(.largeTitle).foregroundStyle(Theme.Color.leaf)
-            Text(title).font(.headline)
-            Text(message).font(.subheadline).multilineTextAlignment(.center)
-                .foregroundStyle(Theme.Color.textSecondary)
+            IconBadge(systemImage: icon)
+            VStack(spacing: Theme.Space.xs) {
+                Text(title).font(.title3.weight(.semibold))
+                Text(message).font(.subheadline).multilineTextAlignment(.center)
+                    .foregroundStyle(Theme.Color.textSecondary)
+            }
             Button(primary.0, action: primary.1)
-                .buttonStyle(.borderedProminent).tint(Theme.Color.leaf)
+                .buttonStyle(.primary)
+                .padding(.top, Theme.Space.s)
         }
         .frame(maxWidth: .infinity)
-        .padding(Theme.Space.l)
+        .padding(Theme.Space.xl)
         .card()
     }
 }
