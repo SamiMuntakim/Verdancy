@@ -88,6 +88,7 @@ final class GardenStore {
         snoozes[snoozeId(plant.plantId, type)] = until
         UserDefaults.standard.set(snoozes, forKey: Self.snoozeKey)
         Analytics.log("care_snoozed", ["type": type.rawValue])
+        onChanged?(plants) // due list changed → streak/widget/reminders re-derive
     }
 
     // MARK: Due list

@@ -1,5 +1,6 @@
 import SwiftUI
 import Observation
+import WidgetKit
 
 /// Top-level app state + coordination (auth session, the shared garden, entitlement,
 /// streak, notifications, and the post-purchase bloom).
@@ -51,6 +52,7 @@ final class AppModel {
             self.knewPlants = nowHasPlants
             // Snoozed tasks still count as due for the streak (no gaming it).
             self.streak.refresh(allCaughtUp: self.garden.dueItems(includingSnoozed: true).isEmpty)
+            self.publishWidgetSummary()
             Task {
                 if isFirstPlant { await self.notifications.requestAuthorizationIfNeeded() }
                 await self.notifications.reschedule(for: plants, streak: self.streak.current)
@@ -60,6 +62,23 @@ final class AppModel {
     }
 
     private var totalTrees: Int { (isSubscribed ? 10 : 0) + garden.trees.treesPledged }
+
+    /// Push a fresh due summary to the home-screen widget (App Group handoff).
+    private func publishWidgetSummary() {
+        let due = garden.dueItems
+        let summary = WidgetShared.Summary(
+            items: due.prefix(4).map {
+                WidgetShared.Summary.Item(
+                    plantName: $0.plant.displayName, task: $0.type.title,
+                    systemImage: $0.type.systemImage, overdueDays: $0.overdueDays)
+            },
+            dueCount: due.count,
+            plantCount: garden.plants.count,
+            streak: streak.current,
+            generatedAt: Date())
+        WidgetShared.write(summary)
+        WidgetCenter.shared.reloadAllTimelines()
+    }
 
     private let reportedKey = "verdancy.reportedMilestones"
     private var reportedMilestones: Set<String> {
@@ -154,6 +173,8 @@ final class AppModel {
         await entitlement.reset()
         SnapshotStore.clear()
         HealthLog.shared.clear()
+        WidgetShared.clear()
+        WidgetCenter.shared.reloadAllTimelines()
         notifications.cancelAll()
         UserDefaults.standard.removeObject(forKey: reportedKey)
         garden.plants = []

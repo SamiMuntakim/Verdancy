@@ -50,3 +50,32 @@ targets:
         product: AWSCognitoAuthPlugin
       - package: Amplify
         product: AWSPluginsCore
+      - target: VerdancyWidget
+
+  # "Due today" home-screen widget. Reads the App Group summary the app writes;
+  # shares WidgetShared + Theme sources with the app target.
+  # NOTE: the App Group (group.com.verdancy.app) must be registered on the Apple
+  # Developer portal and enabled for both bundle ids — manual, account-side setup.
+  VerdancyWidget:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: VerdancyWidget
+      - path: Verdancy/Shared
+      - path: Verdancy/DesignSystem/Theme.swift
+    info:
+      path: VerdancyWidget/Info.plist
+      properties:
+        CFBundleDisplayName: Verdancy
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    entitlements:
+      path: VerdancyWidget/VerdancyWidget.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.verdancy.app
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.verdancy.app.widget
+        MARKETING_VERSION: "1.0.0"
+        CURRENT_PROJECT_VERSION: "1"
