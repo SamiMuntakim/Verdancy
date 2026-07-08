@@ -35,12 +35,18 @@ struct LaunchView: View {
     var body: some View {
         ZStack {
             Theme.Color.background.ignoresSafeArea()
-            VStack(spacing: Theme.Space.m) {
-                Image(systemName: "leaf.circle.fill")
-                    .font(.system(size: 64))
-                    .foregroundStyle(Theme.Color.leaf)
+            VStack(spacing: Theme.Space.l) {
+                Image(systemName: "leaf.fill")
+                    .font(.system(size: 40, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 88, height: 88)
+                    .background(
+                        Theme.leafGradient,
+                        in: RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    )
+                    .shadow(color: Theme.Color.leaf.opacity(0.3), radius: 18, y: 8)
                 Text("Verdancy")
-                    .font(.title.weight(.semibold))
+                    .font(.title.weight(.bold))
                     .foregroundStyle(Theme.Color.textPrimary)
                 ProgressView().tint(Theme.Color.leaf)
             }

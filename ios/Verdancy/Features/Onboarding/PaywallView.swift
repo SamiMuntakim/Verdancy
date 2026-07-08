@@ -14,23 +14,39 @@ struct PaywallView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: Theme.Space.l) {
-                    VStack(spacing: Theme.Space.s) {
-                        Image(systemName: "leaf.circle.fill")
-                            .font(.system(size: 64)).foregroundStyle(Theme.Color.leaf)
+                    VStack(spacing: Theme.Space.m) {
+                        Image(systemName: "leaf.fill")
+                            .font(.system(size: 34, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: 72, height: 72)
+                            .background(
+                                Theme.leafGradient,
+                                in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            )
                         Text("Keep your plants alive —\nand plant 10 real trees.")
                             .font(.title2.weight(.bold)).multilineTextAlignment(.center)
-                        Text("Unlimited identify, plant diagnoses, care reminders, streaks, and your blooming buddies.")
-                            .font(.subheadline).multilineTextAlignment(.center)
-                            .foregroundStyle(Theme.Color.textSecondary)
                     }
                     .padding(.top, Theme.Space.l)
+
+                    VStack(alignment: .leading, spacing: Theme.Space.m) {
+                        FeatureRow(icon: "camera.viewfinder", text: "Unlimited plant identification")
+                        FeatureRow(icon: "stethoscope", text: "Instant diagnoses for ailing plants")
+                        FeatureRow(icon: "bell.badge.fill", text: "Care reminders and streaks")
+                        FeatureRow(icon: "sparkles", text: "Your buddies bloom for every plant")
+                        FeatureRow(icon: "tree.fill", text: "10 real trees planted — plus more as you grow")
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(Theme.Space.l)
+                    .card()
 
                     VStack(spacing: Theme.Space.m) {
                         PlanRow(title: "Annual", price: "$39.99 / yr",
                                 subtitle: "7-day free trial · just $3.33/mo, billed yearly",
+                                badge: "SAVE 58%",
                                 selected: plan == .annual) { plan = .annual }
                         PlanRow(title: "Monthly", price: "$7.99 / mo",
                                 subtitle: "Flexible, month to month",
+                                badge: nil,
                                 selected: plan == .monthly) { plan = .monthly }
                     }
 
@@ -39,9 +55,8 @@ struct PaywallView: View {
                     } label: {
                         Text(isWorking ? "Starting…"
                              : plan == .annual ? "Start my 7-day free trial" : "Subscribe monthly")
-                            .frame(maxWidth: .infinity).frame(height: 52)
                     }
-                    .buttonStyle(.borderedProminent).tint(Theme.Color.leaf)
+                    .buttonStyle(.primary)
                     .disabled(isWorking)
 
                     if let error {
@@ -51,6 +66,7 @@ struct PaywallView: View {
                         Task { await app.entitlement.restore(); if app.isSubscribed { dismiss() } }
                     }
                     .font(.footnote)
+                    .foregroundStyle(Theme.Color.textSecondary)
                     Text("No charge until your free trial ends — cancel in two taps. Your 10 trees are planted across your first year.")
                         .font(.caption2).multilineTextAlignment(.center)
                         .foregroundStyle(Theme.Color.textSecondary)
@@ -79,18 +95,49 @@ struct PaywallView: View {
     }
 }
 
+struct FeatureRow: View {
+    let icon: String
+    let text: String
+
+    var body: some View {
+        HStack(spacing: Theme.Space.m) {
+            Image(systemName: icon)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(Theme.Color.leaf)
+                .frame(width: 28, height: 28)
+                .background(Theme.Color.leaf.opacity(0.12), in: Circle())
+            Text(text).font(.subheadline.weight(.medium))
+            Spacer(minLength: 0)
+            Image(systemName: "checkmark")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(Theme.Color.leaf)
+        }
+    }
+}
+
 struct PlanRow: View {
     let title: String
     let price: String
     let subtitle: String
+    let badge: String?
     let selected: Bool
     let tap: () -> Void
 
     var body: some View {
         Button(action: tap) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(.headline).foregroundStyle(Theme.Color.textPrimary)
+            HStack(spacing: Theme.Space.m) {
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: Theme.Space.s) {
+                        Text(title).font(.headline).foregroundStyle(Theme.Color.textPrimary)
+                        if let badge {
+                            Text(badge)
+                                .font(.caption2.weight(.bold))
+                                .padding(.horizontal, 7)
+                                .padding(.vertical, 3)
+                                .background(Theme.Color.terracotta.opacity(0.15), in: Capsule())
+                                .foregroundStyle(Theme.Color.terracotta)
+                        }
+                    }
                     if !subtitle.isEmpty {
                         Text(subtitle).font(.caption).foregroundStyle(Theme.Color.textSecondary)
                     }
@@ -98,15 +145,22 @@ struct PlanRow: View {
                 Spacer()
                 Text(price).fontWeight(.semibold).foregroundStyle(Theme.Color.textPrimary)
                 Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                    .font(.title3)
                     .foregroundStyle(selected ? Theme.Color.leaf : Theme.Color.separator)
             }
-            .padding(Theme.Space.m)
+            .padding(Theme.Space.l)
             .background(
                 RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous)
-                    .stroke(selected ? Theme.Color.leaf : Theme.Color.separator, lineWidth: selected ? 2 : 1)
+                    .fill(selected ? Theme.Color.leaf.opacity(0.08) : Theme.Color.surface)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous)
+                    .strokeBorder(selected ? Theme.Color.leaf : Theme.Color.separator,
+                                  lineWidth: selected ? 2 : 1)
             )
         }
         .buttonStyle(.plain)
+        .animation(.easeOut(duration: 0.15), value: selected)
     }
 }
 

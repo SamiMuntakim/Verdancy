@@ -16,6 +16,10 @@ struct BloomCelebrationView: View {
                 Spacer()
                 ZStack {
                     Circle()
+                        .fill(Theme.Color.leaf.opacity(0.08))
+                        .frame(width: 300, height: 300)
+                        .scaleEffect(bloomed ? 1.0 : 0.4)
+                    Circle()
                         .fill(Theme.Color.leaf.opacity(0.15))
                         .frame(width: 220, height: 220)
                         .scaleEffect(bloomed ? 1.0 : 0.5)
@@ -41,14 +45,14 @@ struct BloomCelebrationView: View {
                 .opacity(bloomed ? 1 : 0)
 
                 Spacer()
-                VStack(spacing: Theme.Space.s) {
+                VStack(spacing: Theme.Space.m) {
                     Button("Let's grow", action: onDone)
-                        .buttonStyle(.borderedProminent)
-                        .tint(Theme.Color.leaf)
+                        .buttonStyle(.primary)
                     ShareLink(item: Invite.url, message: Text(Invite.message(code: app.referralCode))) {
                         Label("Share the news", systemImage: "square.and.arrow.up")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(Theme.Color.leaf)
                     }
-                    .font(.subheadline)
                 }
                 .opacity(showCTA ? 1 : 0)
                 .padding(.bottom, Theme.Space.xl)

@@ -20,18 +20,18 @@ struct OnboardingView: View {
             VStack(spacing: 0) {
                 TabView(selection: $page) {
                     ForEach(slides.indices, id: \.self) { index in
-                        VStack(spacing: Theme.Space.l) {
-                            Image(systemName: slides[index].icon)
-                                .font(.system(size: 76))
-                                .foregroundStyle(Theme.Color.leaf)
-                            Text(slides[index].title)
-                                .font(.title.weight(.bold))
-                                .multilineTextAlignment(.center)
-                            Text(slides[index].body)
-                                .font(.body)
-                                .multilineTextAlignment(.center)
-                                .foregroundStyle(Theme.Color.textSecondary)
-                                .padding(.horizontal, Theme.Space.xl)
+                        VStack(spacing: Theme.Space.xl) {
+                            IconBadge(systemImage: slides[index].icon, size: 128)
+                            VStack(spacing: Theme.Space.m) {
+                                Text(slides[index].title)
+                                    .font(.largeTitle.weight(.bold))
+                                    .multilineTextAlignment(.center)
+                                Text(slides[index].body)
+                                    .font(.body)
+                                    .multilineTextAlignment(.center)
+                                    .foregroundStyle(Theme.Color.textSecondary)
+                            }
+                            .padding(.horizontal, Theme.Space.xl)
                         }
                         .tag(index)
                     }
@@ -85,11 +85,12 @@ struct AppleSignInButton: View {
                     Text("Sign in with Apple").fontWeight(.medium)
                 }
             }
+            .font(.headline)
             .frame(maxWidth: .infinity)
-            .frame(height: 50)
+            .frame(height: 52)
             .foregroundStyle(Color.white)
             .background(Color.black)
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.button, style: .continuous))
         }
         .disabled(isWorking)
     }
