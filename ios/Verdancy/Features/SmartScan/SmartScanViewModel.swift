@@ -12,9 +12,9 @@ final class SmartScanViewModel {
 
     enum Phase {
         case idle
-        case working
+        case working(UIImage)
         case identified(CareCard, jpeg: Data)
-        case diagnosed(DiagnosisCard)
+        case diagnosed(DiagnosisCard, jpeg: Data)
         case paywall
         case rateLimited
         case error(String)
@@ -33,7 +33,7 @@ final class SmartScanViewModel {
             return
         }
         let base64 = ImagePipeline.base64(from: jpeg)
-        phase = .working
+        phase = .working(image)
         do {
             switch mode {
             case .identify:
@@ -42,7 +42,7 @@ final class SmartScanViewModel {
                 Haptics.success()
             case .diagnose:
                 let card = try await api.diagnose(imageBase64: base64)
-                phase = .diagnosed(card)
+                phase = .diagnosed(card, jpeg: jpeg)
                 Haptics.success()
             }
         } catch APIError.paywall {
@@ -54,7 +54,7 @@ final class SmartScanViewModel {
             if AppConfig.useMockAuth {
                 switch mode {
                 case .identify: phase = .identified(.sample, jpeg: jpeg)
-                case .diagnose: phase = .diagnosed(.sample)
+                case .diagnose: phase = .diagnosed(.sample, jpeg: jpeg)
                 }
             } else {
                 phase = .error((error as? APIError)?.userMessage ?? "Something went wrong.")

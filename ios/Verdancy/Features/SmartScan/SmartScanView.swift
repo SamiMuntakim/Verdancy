@@ -71,23 +71,20 @@ private struct SmartScanContent: View {
             } else {
                 capturePrompt
             }
-        case .working:
-            VStack(spacing: Theme.Space.m) {
-                IconBadge(systemImage: vm.mode == .identify ? "sparkles" : "stethoscope")
-                ProgressView().tint(Theme.Color.leaf)
-                Text(vm.mode == .identify ? "Identifying…" : "Diagnosing…")
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(Theme.Color.textSecondary)
-            }
-            .frame(maxWidth: .infinity, minHeight: 260)
-            .card()
+        case let .working(image):
+            ScanningView(
+                image: image,
+                label: vm.mode == .identify ? "Identifying…" : "Diagnosing…"
+            )
         case let .identified(card, jpeg):
             VStack(spacing: Theme.Space.m) {
+                ScannedPhotoHeader(jpeg: jpeg)
                 CareCardView(card: card)
                 identifyActions(card: card, jpeg: jpeg)
             }
-        case let .diagnosed(card):
+        case let .diagnosed(card, jpeg):
             VStack(spacing: Theme.Space.m) {
+                ScannedPhotoHeader(jpeg: jpeg)
                 DiagnosisCardView(card: card)
                 Button("Done") { vm.reset() }.buttonStyle(.secondary)
             }
@@ -230,4 +227,72 @@ private struct SaveContext: Identifiable {
     let card: CareCard
     let jpeg: Data
     var id: String { card.species + card.commonName }
+}
+
+/// The magic moment (iOS-PRD §3.2): the user's own photo with a leaf-green scan
+/// line sweeping over it while Gemini works.
+private struct ScanningView: View {
+    let image: UIImage
+    let label: String
+
+    @State private var sweep = false
+
+    var body: some View {
+        VStack(spacing: Theme.Space.l) {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFill()
+                .frame(maxWidth: .infinity)
+                .frame(height: 340)
+                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
+                .overlay(
+                    GeometryReader { geo in
+                        LinearGradient(
+                            colors: [
+                                Theme.Color.leaf.opacity(0),
+                                Theme.Color.leaf.opacity(0.65),
+                                Theme.Color.leaf.opacity(0),
+                            ],
+                            startPoint: .top, endPoint: .bottom
+                        )
+                        .frame(height: 80)
+                        .offset(y: sweep ? geo.size.height - 80 : 0)
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
+                    .allowsHitTesting(false)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
+                        .strokeBorder(Theme.Color.leaf.opacity(0.5), lineWidth: 1.5)
+                )
+            HStack(spacing: Theme.Space.s) {
+                ProgressView().tint(Theme.Color.leaf)
+                Text(label)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(Theme.Color.textSecondary)
+            }
+        }
+        .onAppear {
+            withAnimation(.easeInOut(duration: 1.4).repeatForever(autoreverses: true)) {
+                sweep = true
+            }
+        }
+    }
+}
+
+/// The scanned photo shown above the result card, so the verdict reads as
+/// "here's what we found in *your* photo."
+private struct ScannedPhotoHeader: View {
+    let jpeg: Data
+
+    var body: some View {
+        if let image = UIImage(data: jpeg) {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFill()
+                .frame(maxWidth: .infinity)
+                .frame(height: 200)
+                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
+        }
+    }
 }
