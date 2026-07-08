@@ -31,7 +31,12 @@ struct TodayView: View {
                 } else {
                     Section("Due now") {
                         ForEach(due) { item in
-                            DueRow(item: item)
+                            DueRow(item: item) {
+                                Task {
+                                    await app.garden.logCare(plant: item.plant, type: item.type)
+                                    Haptics.success()
+                                }
+                            }
                                 .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                                     Button {
                                         Task {
@@ -122,6 +127,7 @@ struct StatChip: View {
 
 struct DueRow: View {
     let item: DueItem
+    let onComplete: () -> Void
 
     private var isOverdue: Bool { item.overdueDays > 0 }
 
@@ -145,6 +151,14 @@ struct DueRow: View {
                     in: Capsule()
                 )
                 .foregroundStyle(isOverdue ? Theme.Color.warning : Theme.Color.leaf)
+            // The visible completion path — the swipe stays as the power gesture.
+            Button(action: onComplete) {
+                Image(systemName: "checkmark.circle")
+                    .font(.title2.weight(.medium))
+                    .foregroundStyle(Theme.Color.leaf)
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel("Mark \(item.type.title.lowercased()) done")
         }
         .padding(.vertical, 4)
     }

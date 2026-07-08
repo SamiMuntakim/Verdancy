@@ -7,6 +7,7 @@ struct CachedAsyncImage: View {
     let downloadURL: String?
 
     @State private var uiImage: UIImage?
+    @State private var isLoading = false
 
     var body: some View {
         ZStack {
@@ -14,6 +15,8 @@ struct CachedAsyncImage: View {
                 Image(uiImage: uiImage)
                     .resizable()
                     .scaledToFill()
+            } else if isLoading {
+                placeholder.shimmer()
             } else {
                 placeholder
             }
@@ -32,9 +35,11 @@ struct CachedAsyncImage: View {
 
     private func load() async {
         guard let imageRef else { return }
+        isLoading = true
         if let data = await ImageCache.shared.data(imageRef: imageRef, downloadURL: downloadURL),
            let image = UIImage(data: data) {
             uiImage = image
         }
+        isLoading = false
     }
 }

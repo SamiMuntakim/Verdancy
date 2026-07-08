@@ -19,30 +19,12 @@ struct PlantDetailView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Theme.Space.l) {
-                CachedAsyncImage(imageRef: current.imageRef, downloadURL: current.downloadUrl)
-                    .frame(height: 240)
-                    .frame(maxWidth: .infinity)
-                    .clipped()
-                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
+                heroHeader
 
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(current.displayName).font(.title.weight(.bold))
-                        Text(current.commonName).foregroundStyle(Theme.Color.textSecondary)
-                    }
-                    Spacer()
-                    // iOS-PRD §8.3: tapping the dormant bud is a paywall moment —
-                    // framed as "help it bloom," never punitive.
-                    BudView(plant: current, isSubscribed: app.isSubscribed, size: 56)
-                        .onTapGesture {
-                            if !app.isSubscribed { showPaywall = true }
-                        }
-                        .sheet(isPresented: $showPaywall) { PaywallView() }
-                }
-
-                careSection
-                factsSection
-                healthSection
+                Group {
+                    careSection
+                    factsSection
+                    healthSection
 
                 NavigationLink {
                     GrowthTimelineView(plant: current)
@@ -75,12 +57,16 @@ struct PlantDetailView: View {
                 }
                 .foregroundStyle(Theme.Color.danger)
                 .padding(.top, Theme.Space.s)
+                }
+                .padding(.horizontal, Theme.Space.l)
+                .padding(.bottom, Theme.Space.l)
             }
-            .padding(Theme.Space.l)
         }
+        .coordinateSpace(name: "detailScroll")
         .background(Theme.Color.background)
         .navigationTitle(current.displayName)
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $showPaywall) { PaywallView() }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button("Edit") { showEdit = true }
@@ -100,6 +86,45 @@ struct PlantDetailView: View {
         } message: {
             Text("This removes the plant, its photos, and its images.")
         }
+    }
+
+    /// Full-bleed stretchy hero: the photo grows on pull-down, with a scrim, the
+    /// name overlaid, and the bud living on the photo (iOS-PRD §8.3: tapping the
+    /// dormant bud is a paywall moment — "help it bloom," never punitive).
+    private var heroHeader: some View {
+        GeometryReader { geo in
+            let offset = geo.frame(in: .named("detailScroll")).minY
+            let stretch = max(0, offset)
+            ZStack(alignment: .bottom) {
+                CachedAsyncImage(imageRef: current.imageRef, downloadURL: current.downloadUrl)
+                    .frame(width: geo.size.width, height: 300 + stretch)
+                    .clipped()
+                LinearGradient(
+                    colors: [.clear, .black.opacity(0.55)],
+                    startPoint: .top, endPoint: .bottom
+                )
+                .frame(height: 150)
+                HStack(alignment: .bottom) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(current.displayName)
+                            .font(.title.weight(.bold))
+                            .foregroundStyle(.white)
+                        Text(current.commonName)
+                            .font(.subheadline)
+                            .foregroundStyle(.white.opacity(0.85))
+                    }
+                    Spacer()
+                    BudView(plant: current, isSubscribed: app.isSubscribed, size: 56)
+                        .background(.thinMaterial, in: Circle())
+                        .onTapGesture {
+                            if !app.isSubscribed { showPaywall = true }
+                        }
+                }
+                .padding(Theme.Space.l)
+            }
+            .offset(y: -stretch)
+        }
+        .frame(height: 300)
     }
 
     private var careSection: some View {

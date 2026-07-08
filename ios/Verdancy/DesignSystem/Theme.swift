@@ -121,6 +121,37 @@ extension ButtonStyle where Self == SecondaryButtonStyle {
     static var secondary: SecondaryButtonStyle { SecondaryButtonStyle() }
 }
 
+/// A subtle left-to-right sheen for loading placeholders — reads "in flight,"
+/// not "broken."
+struct Shimmer: ViewModifier {
+    @State private var phase: CGFloat = -1
+
+    func body(content: Content) -> some View {
+        content
+            .overlay(
+                GeometryReader { geo in
+                    LinearGradient(
+                        colors: [.clear, .white.opacity(0.35), .clear],
+                        startPoint: .leading, endPoint: .trailing
+                    )
+                    .frame(width: geo.size.width * 0.6)
+                    .offset(x: phase * geo.size.width * 1.6)
+                }
+                .allowsHitTesting(false)
+            )
+            .clipped()
+            .onAppear {
+                withAnimation(.linear(duration: 1.2).repeatForever(autoreverses: false)) {
+                    phase = 1
+                }
+            }
+    }
+}
+
+extension View {
+    func shimmer() -> some View { modifier(Shimmer()) }
+}
+
 /// An SF Symbol in a soft tinted circle — the standard hero / empty-state glyph.
 struct IconBadge: View {
     let systemImage: String

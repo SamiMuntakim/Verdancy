@@ -1,8 +1,10 @@
 import SwiftUI
+import StoreKit
 
 /// Auth gate: launch → sign-in → the tab bar.
 struct RootView: View {
     @Environment(AppModel.self) private var app
+    @Environment(\.requestReview) private var requestReview
 
     var body: some View {
         @Bindable var app = app
@@ -16,7 +18,11 @@ struct RootView: View {
         .preferredColorScheme(app.appearance.colorScheme)
         .animation(.smooth, value: app.phase)
         .fullScreenCover(isPresented: $app.pendingBloom) {
-            BloomCelebrationView { app.pendingBloom = false }
+            BloomCelebrationView {
+                app.pendingBloom = false
+                // Peak-delight moment; the system throttles how often it shows.
+                requestReview()
+            }
         }
         .overlay(alignment: .top) {
             if let total = app.treeCelebrationCount {

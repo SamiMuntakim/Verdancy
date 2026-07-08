@@ -12,6 +12,9 @@ struct BloomCelebrationView: View {
     var body: some View {
         ZStack {
             Theme.Color.background.ignoresSafeArea()
+            if bloomed {
+                ConfettiBurst().ignoresSafeArea()
+            }
             VStack(spacing: Theme.Space.l) {
                 Spacer()
                 ZStack {
@@ -67,6 +70,60 @@ struct BloomCelebrationView: View {
             }
             withAnimation(.easeIn.delay(1.1)) { showCTA = true }
         }
+    }
+}
+
+/// A one-shot confetti rain — this is the Day-0 payoff, it deserves overkill.
+struct ConfettiBurst: View {
+    private struct Particle: Identifiable {
+        let id: Int
+        let x: CGFloat
+        let delay: Double
+        let duration: Double
+        let size: CGFloat
+        let color: Color
+        let spin: Double
+    }
+
+    @State private var fall = false
+
+    private let particles: [Particle] = {
+        let palette: [Color] = [
+            Theme.Color.leaf, Theme.Color.leafDeep, Theme.Color.terracotta, Theme.Color.warning,
+        ]
+        return (0..<32).map { i in
+            Particle(
+                id: i,
+                x: CGFloat.random(in: 0.02...0.98),
+                delay: Double.random(in: 0...0.7),
+                duration: Double.random(in: 2.2...3.6),
+                size: CGFloat.random(in: 6...11),
+                color: palette[i % palette.count],
+                spin: Double.random(in: 180...540))
+        }
+    }()
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack {
+                ForEach(particles) { particle in
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(particle.color)
+                        .frame(width: particle.size, height: particle.size * 0.6)
+                        .rotationEffect(.degrees(fall ? particle.spin : 0))
+                        .position(
+                            x: particle.x * geo.size.width,
+                            y: fall ? geo.size.height + 24 : -24
+                        )
+                        .animation(
+                            .easeIn(duration: particle.duration).delay(particle.delay),
+                            value: fall
+                        )
+                }
+            }
+        }
+        .allowsHitTesting(false)
+        .onAppear { fall = true }
     }
 }
 
