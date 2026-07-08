@@ -13,6 +13,8 @@ private struct SmartScanContent: View {
     @State private var photoItem: PhotosPickerItem?
     @State private var showPaywall = false
     @State private var saveContext: SaveContext?
+    @State private var showPlantPicker = false
+    @State private var diagnosisSavedTo: String?
 
     init(api: APIClient) {
         _vm = State(initialValue: SmartScanViewModel(api: api))
@@ -37,8 +39,11 @@ private struct SmartScanContent: View {
             .background(Theme.Color.background)
             .navigationTitle("Smart Scan")
             .sheet(isPresented: $showCamera) {
-                CameraPicker { image in Task { await vm.scan(image: image) } }
-                    .ignoresSafeArea()
+                CameraPicker { image in
+                    diagnosisSavedTo = nil
+                    Task { await vm.scan(image: image) }
+                }
+                .ignoresSafeArea()
             }
             .sheet(isPresented: $showPaywall) { PaywallView() }
             .sheet(item: $saveContext) { ctx in
@@ -50,6 +55,7 @@ private struct SmartScanContent: View {
             }
             .onChange(of: photoItem) { _, item in
                 guard let item else { return }
+                diagnosisSavedTo = nil
                 Task {
                     if let data = try? await item.loadTransferable(type: Data.self),
                        let image = UIImage(data: data) {
@@ -86,7 +92,27 @@ private struct SmartScanContent: View {
             VStack(spacing: Theme.Space.m) {
                 ScannedPhotoHeader(jpeg: jpeg)
                 DiagnosisCardView(card: card)
-                Button("Done") { vm.reset() }.buttonStyle(.secondary)
+                if let diagnosisSavedTo {
+                    Label("Saved to \(diagnosisSavedTo)'s health history",
+                          systemImage: "checkmark.circle.fill")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(Theme.Color.leaf)
+                } else if !app.garden.plants.isEmpty {
+                    Button("Save to a plant") { showPlantPicker = true }
+                        .buttonStyle(.primary)
+                }
+                Button("Done") {
+                    diagnosisSavedTo = nil
+                    vm.reset()
+                }
+                .buttonStyle(.secondary)
+            }
+            .sheet(isPresented: $showPlantPicker) {
+                PlantPickerSheet(plants: app.garden.plants) { plant in
+                    HealthLog.shared.add(card, plantId: plant.plantId)
+                    diagnosisSavedTo = plant.displayName
+                    Haptics.success()
+                }
             }
         case .paywall:
             messageCard(
@@ -275,6 +301,44 @@ private struct ScanningView: View {
         .onAppear {
             withAnimation(.easeInOut(duration: 1.4).repeatForever(autoreverses: true)) {
                 sweep = true
+            }
+        }
+    }
+}
+
+/// "Which plant is this diagnosis for?" — attaches the triage card to a plant's
+/// local health history.
+private struct PlantPickerSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let plants: [Plant]
+    let onPick: (Plant) -> Void
+
+    var body: some View {
+        NavigationStack {
+            List(plants) { plant in
+                Button {
+                    onPick(plant)
+                    dismiss()
+                } label: {
+                    HStack(spacing: Theme.Space.m) {
+                        CachedAsyncImage(imageRef: plant.imageRef, downloadURL: plant.downloadUrl)
+                            .frame(width: 44, height: 44)
+                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(plant.displayName)
+                                .fontWeight(.medium)
+                                .foregroundStyle(Theme.Color.textPrimary)
+                            Text(plant.commonName)
+                                .font(.caption)
+                                .foregroundStyle(Theme.Color.textSecondary)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Which plant?")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
             }
         }
     }

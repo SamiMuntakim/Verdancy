@@ -153,6 +153,7 @@ final class AppModel {
         await auth.signOut()
         await entitlement.reset()
         SnapshotStore.clear()
+        HealthLog.shared.clear()
         notifications.cancelAll()
         UserDefaults.standard.removeObject(forKey: reportedKey)
         garden.plants = []

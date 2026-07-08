@@ -42,6 +42,7 @@ struct PlantDetailView: View {
 
                 careSection
                 factsSection
+                healthSection
 
                 NavigationLink {
                     GrowthTimelineView(plant: current)
@@ -166,6 +167,38 @@ struct PlantDetailView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(Theme.Space.l)
         .card()
+    }
+
+    /// Past diagnoses (local health log) — makes Diagnose feel like an ongoing
+    /// medical record, not a one-shot answer.
+    @ViewBuilder
+    private var healthSection: some View {
+        let records = HealthLog.shared.records(for: current.plantId)
+        if !records.isEmpty {
+            VStack(alignment: .leading, spacing: Theme.Space.m) {
+                Text("Health history").font(.headline)
+                ForEach(records) { record in
+                    HStack(alignment: .top, spacing: Theme.Space.m) {
+                        SeverityChip(severity: record.severityLevel)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(record.issue).font(.subheadline.weight(.medium))
+                            Text(record.likelyCause)
+                                .font(.caption)
+                                .foregroundStyle(Theme.Color.textSecondary)
+                        }
+                        Spacer()
+                        if let date = ISO.date(record.at) {
+                            Text(date.formatted(date: .abbreviated, time: .omitted))
+                                .font(.caption)
+                                .foregroundStyle(Theme.Color.textSecondary)
+                        }
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(Theme.Space.l)
+            .card()
+        }
     }
 
     private func factRow(icon: String, label: String, value: String) -> some View {

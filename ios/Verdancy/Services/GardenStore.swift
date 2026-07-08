@@ -129,6 +129,7 @@ final class GardenStore {
     func remove(plantId: String) async throws {
         try await api.deletePlant(plantId: plantId)
         plants.removeAll { $0.plantId == plantId }
+        HealthLog.shared.removeAll(plantId: plantId)
         SnapshotStore.save(GardenSnapshot(plants: plants, trees: trees))
         onChanged?(plants)
     }
