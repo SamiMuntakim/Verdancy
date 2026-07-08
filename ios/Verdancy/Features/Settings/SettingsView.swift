@@ -89,7 +89,8 @@ struct SettingsView: View {
                             app.notifications.remindersEnabled = on
                             Task {
                                 if on { await app.notifications.requestAuthorizationIfNeeded() }
-                                await app.notifications.reschedule(for: app.garden.plants)
+                                await app.notifications.reschedule(
+                                    for: app.garden.plants, streak: app.streak.current)
                             }
                         }
                 }

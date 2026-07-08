@@ -34,7 +34,8 @@ final class NotificationService {
     }
 
     /// Replace all pending reminders with a fresh schedule from the current garden.
-    func reschedule(for plants: [Plant]) async {
+    /// `streak` powers the evening streak-protection nudge (iOS-PRD §11).
+    func reschedule(for plants: [Plant], streak: Int) async {
         let center = UNUserNotificationCenter.current()
         center.removeAllPendingNotificationRequests()
         guard remindersEnabled else { return }
@@ -44,6 +45,7 @@ final class NotificationService {
 
         let now = Date()
         let cal = Calendar.current
+        scheduleStreakNudge(for: plants, streak: streak, now: now, cal: cal, center: center)
         for plant in plants {
             for type in CareType.allCases {
                 guard let due = plant.care.task(for: type).nextDue(now: now) else { continue }
@@ -67,6 +69,39 @@ final class NotificationService {
                 try? await center.add(request)
             }
         }
+    }
+
+    /// One warm evening nudge when a real streak would otherwise break today —
+    /// empowerment, not guilt (iOS-PRD §11 framing rule). Skipped for short streaks,
+    /// skipped when nothing is due, skipped late at night.
+    private func scheduleStreakNudge(
+        for plants: [Plant], streak: Int, now: Date, cal: Calendar, center: UNUserNotificationCenter
+    ) {
+        guard streak >= 3 else { return }
+
+        let hasDueTask = plants.contains { plant in
+            CareType.allCases.contains { type in
+                guard let due = plant.care.task(for: type).nextDue(now: now) else { return false }
+                return due <= now
+            }
+        }
+        guard hasDueTask else { return }
+
+        var comps = cal.dateComponents([.year, .month, .day], from: now)
+        comps.hour = 19
+        comps.minute = 30
+        guard let fire = cal.date(from: comps), fire > now else { return }
+
+        let content = UNMutableNotificationContent()
+        content.title = "Your \(streak)-day streak is alive 🌱"
+        content.body = "One quick check-in keeps it growing — a plant is still waiting today."
+        content.sound = .default
+
+        let trigger = UNTimeIntervalNotificationTrigger(
+            timeInterval: max(fire.timeIntervalSince(now), 60), repeats: false)
+        let request = UNNotificationRequest(
+            identifier: "streak-nudge", content: content, trigger: trigger)
+        center.add(request)
     }
 
     func cancelAll() {

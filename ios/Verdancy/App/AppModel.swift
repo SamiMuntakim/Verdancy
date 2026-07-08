@@ -53,7 +53,7 @@ final class AppModel {
             self.streak.refresh(allCaughtUp: self.garden.dueItems(includingSnoozed: true).isEmpty)
             Task {
                 if isFirstPlant { await self.notifications.requestAuthorizationIfNeeded() }
-                await self.notifications.reschedule(for: plants)
+                await self.notifications.reschedule(for: plants, streak: self.streak.current)
                 await self.reportMilestonesIfNeeded()
             }
         }
