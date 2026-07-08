@@ -69,12 +69,21 @@ struct GreetingHeader: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.m) {
-            Text(greeting)
-                .font(.largeTitle.weight(.bold))
-                .foregroundStyle(Theme.Color.textPrimary)
+            VStack(alignment: .leading, spacing: Theme.Space.xs) {
+                Text(Date.now.formatted(.dateTime.weekday(.wide).month(.wide).day()))
+                    .font(.caption.weight(.semibold))
+                    .textCase(.uppercase)
+                    .kerning(0.8)
+                    .foregroundStyle(Theme.Color.textSecondary)
+                Text(greeting)
+                    .font(.largeTitle.weight(.bold))
+                    .foregroundStyle(Theme.Color.textPrimary)
+            }
             HStack(spacing: Theme.Space.m) {
-                StatChip(icon: "flame.fill", value: "\(streak)", label: "day streak")
-                StatChip(icon: "tree.fill", value: "\(trees)", label: "trees")
+                StatChip(icon: "flame.fill", tint: Theme.Color.terracotta,
+                         value: "\(streak)", label: "day streak")
+                StatChip(icon: "tree.fill", tint: Theme.Color.leaf,
+                         value: "\(trees)", label: "trees")
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -84,12 +93,17 @@ struct GreetingHeader: View {
 
 struct StatChip: View {
     let icon: String
+    let tint: Color
     let value: String
     let label: String
 
     var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: icon).foregroundStyle(Theme.Color.terracotta)
+        HStack(spacing: Theme.Space.s) {
+            Image(systemName: icon)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(tint)
+                .frame(width: 26, height: 26)
+                .background(tint.opacity(0.12), in: Circle())
             Text(value).fontWeight(.bold)
             Text(label).font(.caption).foregroundStyle(Theme.Color.textSecondary)
         }
@@ -102,22 +116,30 @@ struct StatChip: View {
 struct DueRow: View {
     let item: DueItem
 
+    private var isOverdue: Bool { item.overdueDays > 0 }
+
     var body: some View {
         HStack(spacing: Theme.Space.m) {
             CachedAsyncImage(imageRef: item.plant.imageRef, downloadURL: item.plant.downloadUrl)
-                .frame(width: 48, height: 48)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-            VStack(alignment: .leading, spacing: 2) {
-                Text(item.plant.displayName).fontWeight(.medium)
+                .frame(width: 52, height: 52)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(item.plant.displayName).fontWeight(.semibold)
                 Label(item.type.title, systemImage: item.type.systemImage)
                     .font(.caption).foregroundStyle(Theme.Color.textSecondary)
             }
             Spacer()
-            Text(item.overdueDays == 0 ? "Due today" : "\(item.overdueDays)d overdue")
-                .font(.caption.weight(.medium))
-                .foregroundStyle(item.overdueDays == 0 ? Theme.Color.textSecondary : Theme.Color.warning)
+            Text(isOverdue ? "\(item.overdueDays)d late" : "Today")
+                .font(.caption.weight(.semibold))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(
+                    (isOverdue ? Theme.Color.warning : Theme.Color.leaf).opacity(0.14),
+                    in: Capsule()
+                )
+                .foregroundStyle(isOverdue ? Theme.Color.warning : Theme.Color.leaf)
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 4)
     }
 }
 
@@ -127,22 +149,25 @@ struct TodayEmptyState: View {
 
     var body: some View {
         VStack(spacing: Theme.Space.m) {
-            Image(systemName: hasPlants ? "checkmark.seal.fill" : "leaf.fill")
-                .font(.system(size: 44)).foregroundStyle(Theme.Color.leaf)
-            Text(hasPlants ? "All caught up 🌿" : "Your oasis is empty")
-                .font(.headline)
-            Text(hasPlants
-                 ? "Nothing's due right now. Enjoy your plants!"
-                 : "Scan your first plant to start your garden.")
-                .font(.subheadline).multilineTextAlignment(.center)
-                .foregroundStyle(Theme.Color.textSecondary)
+            IconBadge(systemImage: hasPlants ? "checkmark.seal.fill" : "leaf.fill")
+            VStack(spacing: Theme.Space.xs) {
+                Text(hasPlants ? "All caught up 🌿" : "Your oasis is empty")
+                    .font(.title3.weight(.semibold))
+                Text(hasPlants
+                     ? "Nothing's due right now. Enjoy your plants!"
+                     : "Scan your first plant to start your garden.")
+                    .font(.subheadline).multilineTextAlignment(.center)
+                    .foregroundStyle(Theme.Color.textSecondary)
+            }
             if !hasPlants {
                 Button("Scan a plant", action: onScan)
-                    .buttonStyle(.borderedProminent).tint(Theme.Color.leaf)
+                    .buttonStyle(.primary)
+                    .padding(.top, Theme.Space.s)
             }
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, Theme.Space.xl)
+        .padding(.vertical, Theme.Space.xxl)
+        .padding(.horizontal, Theme.Space.l)
     }
 }
 

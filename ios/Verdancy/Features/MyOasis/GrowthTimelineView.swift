@@ -54,27 +54,33 @@ struct GrowthTimelineView: View {
     private var addButtons: some View {
         HStack(spacing: Theme.Space.m) {
             Button { showCamera = true } label: {
-                Label("Photo", systemImage: "camera.fill").frame(maxWidth: .infinity).frame(height: 44)
+                Label("Photo", systemImage: "camera.fill")
             }
-            .buttonStyle(.borderedProminent).tint(Theme.Color.leaf)
+            .buttonStyle(.primary)
             PhotosPicker(selection: $photoItem, matching: .images) {
                 Label("Library", systemImage: "photo.on.rectangle")
-                    .frame(maxWidth: .infinity).frame(height: 44)
+                    .font(.headline)
+                    .foregroundStyle(Theme.Color.leaf)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 52)
+                    .background(Theme.Color.leaf.opacity(0.12))
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.button, style: .continuous))
             }
-            .buttonStyle(.bordered)
         }
         .disabled(uploading)
     }
 
     private var emptyState: some View {
-        VStack(spacing: Theme.Space.s) {
-            Image(systemName: "photo.stack").font(.largeTitle).foregroundStyle(Theme.Color.leaf)
-            Text("No photos yet").font(.headline)
-            Text("Add a photo to track how \(plant.displayName) grows over time.")
-                .font(.subheadline).multilineTextAlignment(.center)
-                .foregroundStyle(Theme.Color.textSecondary)
+        VStack(spacing: Theme.Space.m) {
+            IconBadge(systemImage: "photo.stack")
+            VStack(spacing: Theme.Space.xs) {
+                Text("No photos yet").font(.title3.weight(.semibold))
+                Text("Add a photo to track how \(plant.displayName) grows over time.")
+                    .font(.subheadline).multilineTextAlignment(.center)
+                    .foregroundStyle(Theme.Color.textSecondary)
+            }
         }
-        .padding(.vertical, Theme.Space.xl)
+        .padding(.vertical, Theme.Space.xxl)
     }
 
     private func photoRow(_ photo: PhotoEntry) -> some View {

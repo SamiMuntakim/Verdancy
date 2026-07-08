@@ -24,6 +24,26 @@ struct SavePlantSheet: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    HStack(spacing: Theme.Space.m) {
+                        if let image = UIImage(data: jpeg) {
+                            Image(uiImage: image)
+                                .resizable()
+                                .scaledToFill()
+                                .frame(width: 56, height: 56)
+                                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        }
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(card.isUnidentified ? "Unidentified plant" : card.commonName)
+                                .font(.subheadline.weight(.semibold))
+                            if !card.isUnidentified {
+                                Text(card.species.capitalized)
+                                    .font(.caption.italic())
+                                    .foregroundStyle(Theme.Color.textSecondary)
+                            }
+                        }
+                    }
+                }
                 Section("Name your plant") {
                     TextField("e.g. Monty the Monstera", text: $nickname)
                 }

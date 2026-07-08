@@ -46,19 +46,34 @@ struct PlantDetailView: View {
                 NavigationLink {
                     GrowthTimelineView(plant: current)
                 } label: {
-                    Label("Growth timeline", systemImage: "photo.stack")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(Theme.Space.l)
-                        .card()
+                    HStack(spacing: Theme.Space.m) {
+                        Image(systemName: "photo.stack")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(Theme.Color.leaf)
+                            .frame(width: 28, height: 28)
+                            .background(Theme.Color.leaf.opacity(0.12), in: Circle())
+                        Text("Growth timeline")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(Theme.Color.textPrimary)
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(Theme.Color.textSecondary)
+                    }
+                    .padding(Theme.Space.l)
+                    .card()
                 }
                 .buttonStyle(.plain)
 
                 Button(role: .destructive) {
                     showDeleteConfirm = true
                 } label: {
-                    Label("Delete plant", systemImage: "trash").frame(maxWidth: .infinity)
+                    Label("Delete plant", systemImage: "trash")
+                        .font(.subheadline.weight(.medium))
+                        .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.bordered)
+                .foregroundStyle(Theme.Color.danger)
+                .padding(.top, Theme.Space.s)
             }
             .padding(Theme.Space.l)
         }
@@ -96,9 +111,17 @@ struct PlantDetailView: View {
             } else {
                 ForEach(scheduled, id: \.self) { type in
                     let cadence = current.care.task(for: type).cadenceDays ?? 0
-                    HStack {
-                        Label("\(type.title) every \(cadence)d", systemImage: type.systemImage)
-                            .font(.subheadline)
+                    HStack(spacing: Theme.Space.m) {
+                        Image(systemName: type.systemImage)
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(Theme.Color.leaf)
+                            .frame(width: 28, height: 28)
+                            .background(Theme.Color.leaf.opacity(0.12), in: Circle())
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(type.title).font(.subheadline.weight(.medium))
+                            Text("Every \(cadence) days")
+                                .font(.caption).foregroundStyle(Theme.Color.textSecondary)
+                        }
                         Spacer()
                         Button("Done") {
                             Task {
@@ -106,7 +129,11 @@ struct PlantDetailView: View {
                                 Haptics.success()
                             }
                         }
-                        .buttonStyle(.bordered).tint(Theme.Color.leaf)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Theme.Color.leaf)
+                        .padding(.horizontal, Theme.Space.l)
+                        .padding(.vertical, Theme.Space.s)
+                        .background(Theme.Color.leaf.opacity(0.12), in: Capsule())
                     }
                 }
             }
@@ -120,8 +147,14 @@ struct PlantDetailView: View {
         VStack(alignment: .leading, spacing: Theme.Space.m) {
             if current.toxicityLevel?.isConcerning == true {
                 Label("Toxic to pets and children if ingested", systemImage: "pawprint.fill")
-                    .font(.subheadline.weight(.medium))
+                    .font(.footnote.weight(.medium))
                     .foregroundStyle(Theme.Color.danger)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(Theme.Space.m)
+                    .background(
+                        Theme.Color.danger.opacity(0.1),
+                        in: RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous)
+                    )
             }
             if let light = current.lightingNeeds, !light.isEmpty {
                 factRow(icon: "sun.max.fill", label: "Light", value: light)
@@ -136,8 +169,12 @@ struct PlantDetailView: View {
     }
 
     private func factRow(icon: String, label: String, value: String) -> some View {
-        HStack(alignment: .top, spacing: Theme.Space.s) {
-            Image(systemName: icon).foregroundStyle(Theme.Color.leaf).frame(width: 22)
+        HStack(alignment: .top, spacing: Theme.Space.m) {
+            Image(systemName: icon)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(Theme.Color.leaf)
+                .frame(width: 28, height: 28)
+                .background(Theme.Color.leaf.opacity(0.12), in: Circle())
             VStack(alignment: .leading, spacing: 2) {
                 Text(label).font(.caption).foregroundStyle(Theme.Color.textSecondary)
                 Text(value).font(.subheadline)

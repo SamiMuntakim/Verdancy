@@ -42,25 +42,25 @@ struct PlantCard: View {
         VStack(alignment: .leading, spacing: 0) {
             ZStack(alignment: .bottomTrailing) {
                 CachedAsyncImage(imageRef: plant.imageRef, downloadURL: plant.downloadUrl)
-                    .frame(height: 130)
+                    .frame(height: 140)
                     .frame(maxWidth: .infinity)
                     .clipped()
                 BudView(plant: plant, isSubscribed: isSubscribed, size: 40)
+                    .background(.thinMaterial, in: Circle())
                     .padding(Theme.Space.s)
             }
             VStack(alignment: .leading, spacing: 2) {
                 Text(plant.displayName)
-                    .fontWeight(.semibold).lineLimit(1)
+                    .font(.subheadline.weight(.semibold)).lineLimit(1)
                     .foregroundStyle(Theme.Color.textPrimary)
                 Text(plant.commonName)
                     .font(.caption).lineLimit(1)
                     .foregroundStyle(Theme.Color.textSecondary)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(Theme.Space.m)
         }
-        .background(Theme.Color.surface)
-        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
-        .shadow(color: .black.opacity(0.05), radius: 8, y: 3)
+        .card()
     }
 }
 
@@ -68,15 +68,18 @@ struct OasisEmptyState: View {
     let onScan: () -> Void
     var body: some View {
         VStack(spacing: Theme.Space.m) {
-            Image(systemName: "leaf.fill").font(.system(size: 52)).foregroundStyle(Theme.Color.leaf)
-            Text("Start your oasis").font(.title3.weight(.semibold))
-            Text("Scan your first plant — your garden grows from here.")
-                .font(.subheadline).multilineTextAlignment(.center)
-                .foregroundStyle(Theme.Color.textSecondary)
+            IconBadge(systemImage: "leaf.fill", size: 84)
+            VStack(spacing: Theme.Space.xs) {
+                Text("Start your oasis").font(.title3.weight(.semibold))
+                Text("Scan your first plant — your garden grows from here.")
+                    .font(.subheadline).multilineTextAlignment(.center)
+                    .foregroundStyle(Theme.Color.textSecondary)
+            }
             Button("Scan a plant", action: onScan)
-                .buttonStyle(.borderedProminent).tint(Theme.Color.leaf)
+                .buttonStyle(.primary)
+                .padding(.top, Theme.Space.s)
         }
-        .padding(Theme.Space.xl)
+        .padding(Theme.Space.xxl)
     }
 }
 
