@@ -33,7 +33,7 @@ struct CareCardView: View {
             }
 
             if card.toxicityLevel?.isConcerning == true {
-                Label("Toxic to pets and children if ingested", systemImage: "pawprint.fill")
+                Label(PetContext.toxicityWarning, systemImage: "pawprint.fill")
                     .font(.footnote.weight(.medium))
                     .foregroundStyle(Theme.Color.danger)
                     .frame(maxWidth: .infinity, alignment: .leading)
