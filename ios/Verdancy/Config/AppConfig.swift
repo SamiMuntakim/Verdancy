@@ -6,6 +6,14 @@ enum AppConfig {
     /// Base URL of the deployed HTTP API — the `HttpApiUrl` stack output.
     static let apiBaseURL = URL(string: "https://bygdoy8or3.execute-api.us-west-1.amazonaws.com")!
 
+    /// Cognito user pool the app authenticates against (the deployed Phase-1 values).
+    /// These are NOT secret — they ship in every client — and are used for native
+    /// Sign in with Apple: the app posts the Apple token to `/auth/apple` and later
+    /// refreshes tokens directly against Cognito with the client id below.
+    static let cognitoRegion = "us-west-1"
+    static let cognitoUserPoolId = "us-west-1_3nSrmRffE"
+    static let cognitoAppClientId = "6jsmcp3h5g51brqas321f94u3"
+
     /// RevenueCat public SDK key (App Store).
     static let revenueCatAPIKey = "appl_UotmnRxURcklrwrZorlKJcEoKAQ"
 
