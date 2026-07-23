@@ -5,7 +5,6 @@ import {
   AdminCreateUserCommand,
   AdminSetUserPasswordCommand,
   AdminInitiateAuthCommand,
-  AdminRespondToAuthChallengeCommand,
   MessageActionType,
   type AttributeType,
 } from '@aws-sdk/client-cognito-identity-provider';
@@ -97,14 +96,6 @@ export async function findOrCreateFederatedUser(username: string): Promise<Feder
         UserAttributes: [{ Name: 'email_verified', Value: 'true' }],
       }),
     );
-    await client.send(
-      new AdminSetUserPasswordCommand({
-        UserPoolId: userPoolId,
-        Username: username,
-        Password: strongRandomPassword(),
-        Permanent: true,
-      }),
-    );
     return { username, sub: subOf(created.User), created: true };
   } catch (err) {
     // A concurrent first sign-in already created the user — fall back to reading it.
@@ -126,42 +117,38 @@ export interface IssuedTokens {
 }
 
 /**
- * Mint real user-pool tokens for `username` via the passwordless CUSTOM_AUTH
- * flow. The `brokerSecret` is the answer the VERIFY_AUTH_CHALLENGE trigger checks
- * — it proves this login came from our backend (which already verified the Apple
- * token), so a client calling CUSTOM_AUTH directly can't mint tokens.
+ * Mint real user-pool tokens for `username`. Because the backend has already
+ * verified the Apple token, it sets a fresh random password on the account and
+ * immediately signs in with ADMIN_USER_PASSWORD_AUTH — an admin-only flow, so it
+ * needs the Lambda's AWS credentials and can't be driven by a client. The password
+ * is ephemeral (never returned or reused) and the set also confirms a brand-new
+ * account. Simpler and more robust than a custom-auth challenge.
  */
-export async function issueTokensViaCustomAuth(
-  username: string,
-  brokerSecret: string,
-): Promise<IssuedTokens> {
+export async function issueTokens(username: string): Promise<IssuedTokens> {
   const userPoolId = requireEnv('USER_POOL_ID');
   const clientId = requireEnv('APP_CLIENT_ID');
 
-  const initiate = await client.send(
+  const password = strongRandomPassword();
+  await client.send(
+    new AdminSetUserPasswordCommand({
+      UserPoolId: userPoolId,
+      Username: username,
+      Password: password,
+      Permanent: true,
+    }),
+  );
+
+  const auth = await client.send(
     new AdminInitiateAuthCommand({
       UserPoolId: userPoolId,
       ClientId: clientId,
-      AuthFlow: 'CUSTOM_AUTH',
-      AuthParameters: { USERNAME: username },
+      AuthFlow: 'ADMIN_USER_PASSWORD_AUTH',
+      AuthParameters: { USERNAME: username, PASSWORD: password },
     }),
   );
-  if (initiate.ChallengeName !== 'CUSTOM_CHALLENGE' || !initiate.Session) {
-    throw new Error('Unexpected custom-auth initiation response');
-  }
-
-  const respond = await client.send(
-    new AdminRespondToAuthChallengeCommand({
-      UserPoolId: userPoolId,
-      ClientId: clientId,
-      ChallengeName: 'CUSTOM_CHALLENGE',
-      Session: initiate.Session,
-      ChallengeResponses: { USERNAME: username, ANSWER: brokerSecret },
-    }),
-  );
-  const result = respond.AuthenticationResult;
+  const result = auth.AuthenticationResult;
   if (!result?.IdToken || !result.AccessToken || !result.RefreshToken) {
-    throw new Error('Custom auth did not return tokens');
+    throw new Error('Admin auth did not return tokens');
   }
   return {
     idToken: result.IdToken,

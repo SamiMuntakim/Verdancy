@@ -164,9 +164,9 @@ export class VerdancyStack extends cdk.Stack {
       generateSecret: false,
       authFlows: {
         userSrp: true,
-        // Native Sign in with Apple mints tokens through the passwordless
-        // CUSTOM_AUTH flow (see the auth Lambda + custom-auth triggers).
-        custom: true,
+        // Native Sign in with Apple mints tokens through the admin password flow in
+        // the auth Lambda (backend-only; requires the Lambda's AWS credentials).
+        adminUserPassword: true,
       },
       supportedIdentityProviders: identityProviders,
       preventUserExistenceErrors: true,
@@ -264,18 +264,6 @@ export class VerdancyStack extends cdk.Stack {
       description:
         'Shared secret RevenueCat sends in the Authorization header; also set this in RevenueCat.',
       generateSecretString: { passwordLength: 40, excludePunctuation: true },
-      removalPolicy: retain ? RemovalPolicy.RETAIN : RemovalPolicy.DESTROY,
-    });
-
-    // Broker secret for native federation: the answer the VERIFY_AUTH_CHALLENGE
-    // trigger checks. Only the auth Lambda (which verifies the Apple token first)
-    // and the trigger can read it, so a client hitting CUSTOM_AUTH directly can't
-    // mint tokens. CDK generates the value; nothing secret is in the template.
-    const authBrokerSecret = new secretsmanager.Secret(this, 'AuthBrokerSecret', {
-      secretName: 'verdancy/auth-broker-secret',
-      description:
-        'Shared secret proving a native-federation sign-in was authorized by the /auth Lambda; read by that Lambda and the custom-auth trigger only.',
-      generateSecretString: { passwordLength: 48, excludePunctuation: true },
       removalPolicy: retain ? RemovalPolicy.RETAIN : RemovalPolicy.DESTROY,
     });
 
@@ -384,37 +372,16 @@ export class VerdancyStack extends cdk.Stack {
 
     // ---------------------------------------------------------------------
     // Native-federation auth. `POST /auth/apple` is unauthenticated (it verifies
-    // Apple's identity token itself), and one Lambda serves the three custom-auth
-    // triggers that mint user-pool tokens. Together they let the app do native
-    // Sign in with Apple yet still receive a real Cognito JWT (hard invariant #1:
-    // identity stays the verified user-pool `sub`).
+    // Apple's identity token itself), then find-or-creates the pool user and mints
+    // real user-pool tokens via the admin password flow (an ephemeral password it
+    // sets and immediately uses). This lets the app do native Sign in with Apple
+    // yet still receive a real Cognito JWT (hard invariant #1: identity stays the
+    // verified user-pool `sub`).
     // ---------------------------------------------------------------------
     const authLogGroup = new logs.LogGroup(this, 'AuthLogGroup', {
       retention: logs.RetentionDays.ONE_MONTH,
       removalPolicy: logRemoval,
     });
-    const authChallengeLogGroup = new logs.LogGroup(this, 'AuthChallengeLogGroup', {
-      retention: logs.RetentionDays.ONE_MONTH,
-      removalPolicy: logRemoval,
-    });
-
-    // The custom-auth trigger (Define/Create/Verify in one function). Attached to
-    // the pool below; it only approves the broker secret it shares with authFn.
-    const authChallengeFn = new NodejsFunction(this, 'AuthChallengeFn', {
-      ...commonFnProps,
-      functionName: 'verdancy-auth-challenge',
-      entry: path.join(handlersDir, 'auth-challenge.ts'),
-      memorySize: 256,
-      timeout: Duration.seconds(10),
-      logGroup: authChallengeLogGroup,
-      environment: {
-        AUTH_BROKER_SECRET_ARN: authBrokerSecret.secretArn,
-      },
-    });
-    authBrokerSecret.grantRead(authChallengeFn);
-    userPool.addTrigger(cognito.UserPoolOperation.DEFINE_AUTH_CHALLENGE, authChallengeFn);
-    userPool.addTrigger(cognito.UserPoolOperation.CREATE_AUTH_CHALLENGE, authChallengeFn);
-    userPool.addTrigger(cognito.UserPoolOperation.VERIFY_AUTH_CHALLENGE_RESPONSE, authChallengeFn);
 
     const authFn = new NodejsFunction(this, 'AuthFn', {
       ...commonFnProps,
@@ -428,12 +395,10 @@ export class VerdancyStack extends cdk.Stack {
         APP_CLIENT_ID: client.userPoolClientId,
         // Native Sign in with Apple sets the token audience to the app bundle id.
         APPLE_AUDIENCE: 'com.verdancy.app',
-        AUTH_BROKER_SECRET_ARN: authBrokerSecret.secretArn,
       },
     });
-    // Least privilege: read the broker secret + the specific admin actions needed
-    // to find-or-create the user and mint tokens, scoped to this one pool.
-    authBrokerSecret.grantRead(authFn);
+    // Least privilege: only the admin actions needed to find-or-create the user and
+    // mint tokens (admin password flow), scoped to this one pool.
     authFn.addToRolePolicy(
       new iam.PolicyStatement({
         actions: [
@@ -441,7 +406,6 @@ export class VerdancyStack extends cdk.Stack {
           'cognito-idp:AdminCreateUser',
           'cognito-idp:AdminSetUserPassword',
           'cognito-idp:AdminInitiateAuth',
-          'cognito-idp:AdminRespondToAuthChallenge',
         ],
         resources: [userPool.userPoolArn],
       }),
@@ -489,7 +453,6 @@ export class VerdancyStack extends cdk.Stack {
       ['WebhookErrorsAlarm', webhookFn],
       ['BuddyErrorsAlarm', buddyFn],
       ['AuthErrorsAlarm', authFn],
-      ['AuthChallengeErrorsAlarm', authChallengeFn],
     ] as const) {
       fn.metricErrors({ period: Duration.minutes(5) }).createAlarm(this, id, {
         threshold: 5,

@@ -3,8 +3,7 @@ import { json, parseJsonBody } from '../lib/http';
 import { toErrorResponse } from '../lib/errors';
 import { requireEnv } from '../lib/env';
 import { verifyAppleIdentityToken } from '../lib/apple';
-import { findOrCreateFederatedUser, issueTokensViaCustomAuth } from '../lib/cognito';
-import { getSecretString } from '../lib/secrets';
+import { findOrCreateFederatedUser, issueTokens } from '../lib/cognito';
 
 /**
  * `POST /auth/apple` — native Sign in with Apple → real Cognito user-pool tokens.
@@ -51,9 +50,7 @@ export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGateway
     // Cognito-assigned sub, unchanged.
     const username = `apple_${identity.sub.replace(/[^A-Za-z0-9]/g, '')}@no-reply.verdancy.app`;
     const user = await findOrCreateFederatedUser(username);
-
-    const brokerSecret = await getSecretString(requireEnv('AUTH_BROKER_SECRET_ARN'));
-    const tokens = await issueTokensViaCustomAuth(user.username, brokerSecret);
+    const tokens = await issueTokens(user.username);
 
     return json(200, {
       id_token: tokens.idToken,

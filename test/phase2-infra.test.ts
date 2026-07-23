@@ -131,7 +131,7 @@ describe('Operational hardening (PRD 3.8)', () => {
   });
 
   test('error-rate alarms exist for the Lambdas', () => {
-    t.resourceCountIs('AWS::CloudWatch::Alarm', 5);
+    t.resourceCountIs('AWS::CloudWatch::Alarm', 4);
     t.hasResourceProperties('AWS::CloudWatch::Alarm', {
       Namespace: 'AWS/Lambda',
       MetricName: 'Errors',
@@ -140,36 +140,24 @@ describe('Operational hardening (PRD 3.8)', () => {
 });
 
 describe('Native-federation auth (POST /auth/apple)', () => {
-  test('the auth + custom-auth-trigger Lambdas run on Node 20', () => {
+  test('the auth Lambda runs on Node 20', () => {
     t.hasResourceProperties('AWS::Lambda::Function', {
       FunctionName: 'verdancy-auth',
       Runtime: 'nodejs20.x',
     });
-    t.hasResourceProperties('AWS::Lambda::Function', {
-      FunctionName: 'verdancy-auth-challenge',
-      Runtime: 'nodejs20.x',
-    });
   });
 
-  test('the app client enables the passwordless custom-auth flow', () => {
+  test('there is no custom-auth trigger Lambda (simplified to admin auth)', () => {
+    const fns = t.findResources('AWS::Lambda::Function');
+    const names = Object.values(fns).map(
+      (f) => (f as { Properties: { FunctionName?: string } }).Properties.FunctionName,
+    );
+    expect(names).not.toContain('verdancy-auth-challenge');
+  });
+
+  test('the app client enables the admin password flow (backend-only)', () => {
     t.hasResourceProperties('AWS::Cognito::UserPoolClient', {
-      ExplicitAuthFlows: Match.arrayWith(['ALLOW_CUSTOM_AUTH']),
-    });
-  });
-
-  test('the pool wires all three custom-auth triggers', () => {
-    t.hasResourceProperties('AWS::Cognito::UserPool', {
-      LambdaConfig: {
-        DefineAuthChallenge: Match.anyValue(),
-        CreateAuthChallenge: Match.anyValue(),
-        VerifyAuthChallengeResponse: Match.anyValue(),
-      },
-    });
-  });
-
-  test('a generated broker secret exists', () => {
-    t.hasResourceProperties('AWS::SecretsManager::Secret', {
-      Name: 'verdancy/auth-broker-secret',
+      ExplicitAuthFlows: Match.arrayWith(['ALLOW_ADMIN_USER_PASSWORD_AUTH']),
     });
   });
 
@@ -195,9 +183,9 @@ describe('Native-federation auth (POST /auth/apple)', () => {
         'cognito-idp:AdminCreateUser',
         'cognito-idp:AdminSetUserPassword',
         'cognito-idp:AdminInitiateAuth',
-        'cognito-idp:AdminRespondToAuthChallenge',
       ]),
     );
+    expect(actions).not.toContain('cognito-idp:AdminRespondToAuthChallenge');
     expect(actions).not.toContain('cognito-idp:*');
     expect(actions).not.toContain('*');
   });

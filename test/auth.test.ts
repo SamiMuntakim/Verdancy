@@ -5,9 +5,7 @@ import {
   AdminCreateUserCommand,
   AdminSetUserPasswordCommand,
   AdminInitiateAuthCommand,
-  AdminRespondToAuthChallengeCommand,
 } from '@aws-sdk/client-cognito-identity-provider';
-import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from 'aws-lambda';
 
 // Apple verification is exercised on its own in apple.test.ts; here we control its
@@ -16,13 +14,9 @@ jest.mock('../src/lib/apple', () => ({ verifyAppleIdentityToken: jest.fn() }));
 import { verifyAppleIdentityToken } from '../src/lib/apple';
 import { ApiError } from '../src/lib/errors';
 import { handler } from '../src/handlers/auth';
-import { _clearSecretCacheForTest } from '../src/lib/secrets';
 
 const cognitoMock = mockClient(CognitoIdentityProviderClient);
-const smMock = mockClient(SecretsManagerClient);
 const verifyMock = verifyAppleIdentityToken as jest.MockedFunction<typeof verifyAppleIdentityToken>;
-
-const BROKER_SECRET = 'broker-secret-value';
 
 function userNotFound(): Error {
   const e = new Error('no such user');
@@ -47,13 +41,10 @@ beforeAll(() => {
   process.env.USER_POOL_ID = 'us-west-1_test';
   process.env.APP_CLIENT_ID = 'client-abc';
   process.env.APPLE_AUDIENCE = 'com.verdancy.app';
-  process.env.AUTH_BROKER_SECRET_ARN = 'arn:aws:secretsmanager:us-west-1:123:secret:broker';
 });
 
 beforeEach(() => {
   cognitoMock.reset();
-  smMock.reset();
-  _clearSecretCacheForTest();
   verifyMock.mockReset();
   verifyMock.mockResolvedValue({
     sub: 'apple-sub-1',
@@ -61,17 +52,12 @@ beforeEach(() => {
     emailVerified: true,
     isPrivateEmail: false,
   });
-  smMock.on(GetSecretValueCommand).resolves({ SecretString: BROKER_SECRET });
   // Default: the user already exists. The "new user" block overrides this.
   cognitoMock.on(AdminGetUserCommand).resolves({
     UserAttributes: [{ Name: 'sub', Value: 'cognito-sub-1' }],
   });
   cognitoMock.on(AdminSetUserPasswordCommand).resolves({});
   cognitoMock.on(AdminInitiateAuthCommand).resolves({
-    ChallengeName: 'CUSTOM_CHALLENGE',
-    Session: 'session-xyz',
-  });
-  cognitoMock.on(AdminRespondToAuthChallengeCommand).resolves({
     AuthenticationResult: {
       IdToken: 'id-tok',
       AccessToken: 'access-tok',
@@ -166,11 +152,17 @@ describe('new user (first sign-in)', () => {
     expect(create.Username).toBe('apple_applesub2@no-reply.verdancy.app');
   });
 
-  test('answers the custom challenge with the broker secret', async () => {
+  test('mints tokens with ADMIN_USER_PASSWORD_AUTH using a set ephemeral password', async () => {
     await call(goodBody);
-    const respond = cognitoMock.commandCalls(AdminRespondToAuthChallengeCommand)[0].args[0].input;
-    expect(respond.ChallengeResponses?.ANSWER).toBe(BROKER_SECRET);
-    expect(respond.ChallengeResponses?.USERNAME).toBe('apple_applesub1@no-reply.verdancy.app');
+    const setPw = cognitoMock.commandCalls(AdminSetUserPasswordCommand)[0].args[0].input;
+    expect(setPw.Permanent).toBe(true);
+    expect(setPw.Password).toBeTruthy();
+
+    const auth = cognitoMock.commandCalls(AdminInitiateAuthCommand)[0].args[0].input;
+    expect(auth.AuthFlow).toBe('ADMIN_USER_PASSWORD_AUTH');
+    expect(auth.AuthParameters?.USERNAME).toBe('apple_applesub1@no-reply.verdancy.app');
+    // The password used to sign in is the one just set (never returned to the app).
+    expect(auth.AuthParameters?.PASSWORD).toBe(setPw.Password);
   });
 });
 
@@ -182,6 +174,7 @@ describe('returning user', () => {
     const res = await call(goodBody);
     expect(res.statusCode).toBe(200);
     expect(cognitoMock.commandCalls(AdminCreateUserCommand)).toHaveLength(0);
-    expect(cognitoMock.commandCalls(AdminSetUserPasswordCommand)).toHaveLength(0);
+    // Tokens are still minted (password set + admin auth) for the existing user.
+    expect(cognitoMock.commandCalls(AdminInitiateAuthCommand)).toHaveLength(1);
   });
 });
