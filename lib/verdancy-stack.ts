@@ -164,6 +164,9 @@ export class VerdancyStack extends cdk.Stack {
       generateSecret: false,
       authFlows: {
         userSrp: true,
+        // Native Sign in with Apple mints tokens through the passwordless
+        // CUSTOM_AUTH flow (see the auth Lambda + custom-auth triggers).
+        custom: true,
       },
       supportedIdentityProviders: identityProviders,
       preventUserExistenceErrors: true,
@@ -261,6 +264,18 @@ export class VerdancyStack extends cdk.Stack {
       description:
         'Shared secret RevenueCat sends in the Authorization header; also set this in RevenueCat.',
       generateSecretString: { passwordLength: 40, excludePunctuation: true },
+      removalPolicy: retain ? RemovalPolicy.RETAIN : RemovalPolicy.DESTROY,
+    });
+
+    // Broker secret for native federation: the answer the VERIFY_AUTH_CHALLENGE
+    // trigger checks. Only the auth Lambda (which verifies the Apple token first)
+    // and the trigger can read it, so a client hitting CUSTOM_AUTH directly can't
+    // mint tokens. CDK generates the value; nothing secret is in the template.
+    const authBrokerSecret = new secretsmanager.Secret(this, 'AuthBrokerSecret', {
+      secretName: 'verdancy/auth-broker-secret',
+      description:
+        'Shared secret proving a native-federation sign-in was authorized by the /auth Lambda; read by that Lambda and the custom-auth trigger only.',
+      generateSecretString: { passwordLength: 48, excludePunctuation: true },
       removalPolicy: retain ? RemovalPolicy.RETAIN : RemovalPolicy.DESTROY,
     });
 
@@ -367,6 +382,71 @@ export class VerdancyStack extends cdk.Stack {
     webhookSecret.grantRead(webhookFn);
     table.grant(webhookFn, 'dynamodb:UpdateItem', 'dynamodb:GetItem');
 
+    // ---------------------------------------------------------------------
+    // Native-federation auth. `POST /auth/apple` is unauthenticated (it verifies
+    // Apple's identity token itself), and one Lambda serves the three custom-auth
+    // triggers that mint user-pool tokens. Together they let the app do native
+    // Sign in with Apple yet still receive a real Cognito JWT (hard invariant #1:
+    // identity stays the verified user-pool `sub`).
+    // ---------------------------------------------------------------------
+    const authLogGroup = new logs.LogGroup(this, 'AuthLogGroup', {
+      retention: logs.RetentionDays.ONE_MONTH,
+      removalPolicy: logRemoval,
+    });
+    const authChallengeLogGroup = new logs.LogGroup(this, 'AuthChallengeLogGroup', {
+      retention: logs.RetentionDays.ONE_MONTH,
+      removalPolicy: logRemoval,
+    });
+
+    // The custom-auth trigger (Define/Create/Verify in one function). Attached to
+    // the pool below; it only approves the broker secret it shares with authFn.
+    const authChallengeFn = new NodejsFunction(this, 'AuthChallengeFn', {
+      ...commonFnProps,
+      functionName: 'verdancy-auth-challenge',
+      entry: path.join(handlersDir, 'auth-challenge.ts'),
+      memorySize: 256,
+      timeout: Duration.seconds(10),
+      logGroup: authChallengeLogGroup,
+      environment: {
+        AUTH_BROKER_SECRET_ARN: authBrokerSecret.secretArn,
+      },
+    });
+    authBrokerSecret.grantRead(authChallengeFn);
+    userPool.addTrigger(cognito.UserPoolOperation.DEFINE_AUTH_CHALLENGE, authChallengeFn);
+    userPool.addTrigger(cognito.UserPoolOperation.CREATE_AUTH_CHALLENGE, authChallengeFn);
+    userPool.addTrigger(cognito.UserPoolOperation.VERIFY_AUTH_CHALLENGE_RESPONSE, authChallengeFn);
+
+    const authFn = new NodejsFunction(this, 'AuthFn', {
+      ...commonFnProps,
+      functionName: 'verdancy-auth',
+      entry: path.join(handlersDir, 'auth.ts'),
+      memorySize: 256,
+      timeout: Duration.seconds(15),
+      logGroup: authLogGroup,
+      environment: {
+        USER_POOL_ID: userPool.userPoolId,
+        APP_CLIENT_ID: client.userPoolClientId,
+        // Native Sign in with Apple sets the token audience to the app bundle id.
+        APPLE_AUDIENCE: 'com.verdancy.app',
+        AUTH_BROKER_SECRET_ARN: authBrokerSecret.secretArn,
+      },
+    });
+    // Least privilege: read the broker secret + the specific admin actions needed
+    // to find-or-create the user and mint tokens, scoped to this one pool.
+    authBrokerSecret.grantRead(authFn);
+    authFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: [
+          'cognito-idp:AdminGetUser',
+          'cognito-idp:AdminCreateUser',
+          'cognito-idp:AdminSetUserPassword',
+          'cognito-idp:AdminInitiateAuth',
+          'cognito-idp:AdminRespondToAuthChallenge',
+        ],
+        resources: [userPool.userPoolArn],
+      }),
+    );
+
     // Plant Buddy generation Lambda — heavier (image gen + pixel processing).
     const buddyLogGroup = new logs.LogGroup(this, 'BuddyLogGroup', {
       retention: logs.RetentionDays.ONE_MONTH,
@@ -408,6 +488,8 @@ export class VerdancyStack extends cdk.Stack {
       ['RouterErrorsAlarm', routerFn],
       ['WebhookErrorsAlarm', webhookFn],
       ['BuddyErrorsAlarm', buddyFn],
+      ['AuthErrorsAlarm', authFn],
+      ['AuthChallengeErrorsAlarm', authChallengeFn],
     ] as const) {
       fn.metricErrors({ period: Duration.minutes(5) }).createAlarm(this, id, {
         threshold: 5,
@@ -432,6 +514,7 @@ export class VerdancyStack extends cdk.Stack {
     const routerIntegration = new HttpLambdaIntegration('RouterIntegration', routerFn);
     const webhookIntegration = new HttpLambdaIntegration('WebhookIntegration', webhookFn);
     const buddyIntegration = new HttpLambdaIntegration('BuddyIntegration', buddyFn);
+    const authIntegration = new HttpLambdaIntegration('AuthIntegration', authFn);
 
     const jwtRoutes: ReadonlyArray<{ path: string; methods: HttpMethod[] }> = [
       { path: '/users', methods: [HttpMethod.POST, HttpMethod.DELETE] },
@@ -464,12 +547,19 @@ export class VerdancyStack extends cdk.Stack {
       authorizer: jwtAuthorizer,
     });
 
-    // The webhook is the only unauthenticated route — it verifies the shared
-    // secret itself, so no JWT authorizer.
+    // Unauthenticated routes — each verifies its own caller (the webhook by shared
+    // secret, /auth/apple by verifying Apple's identity token), so no JWT
+    // authorizer. These are the only routes without one.
     httpApi.addRoutes({
       path: '/webhooks/revenuecat',
       methods: [HttpMethod.POST],
       integration: webhookIntegration,
+      authorizer: new HttpNoneAuthorizer(),
+    });
+    httpApi.addRoutes({
+      path: '/auth/apple',
+      methods: [HttpMethod.POST],
+      integration: authIntegration,
       authorizer: new HttpNoneAuthorizer(),
     });
 

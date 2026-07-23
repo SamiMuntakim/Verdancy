@@ -100,14 +100,18 @@ describe('HTTP API + JWT authorizer', () => {
     t.hasResourceProperties('AWS::ApiGatewayV2::Authorizer', { AuthorizerType: 'JWT' });
   });
 
-  test('JWT on app routes, NONE on the webhook (18 routes total)', () => {
-    t.resourceCountIs('AWS::ApiGatewayV2::Route', 18);
+  test('JWT on app routes, NONE on the webhook + /auth/apple (19 routes total)', () => {
+    t.resourceCountIs('AWS::ApiGatewayV2::Route', 19);
     t.hasResourceProperties('AWS::ApiGatewayV2::Route', {
       RouteKey: 'POST /identify',
       AuthorizationType: 'JWT',
     });
     t.hasResourceProperties('AWS::ApiGatewayV2::Route', {
       RouteKey: 'POST /webhooks/revenuecat',
+      AuthorizationType: 'NONE',
+    });
+    t.hasResourceProperties('AWS::ApiGatewayV2::Route', {
+      RouteKey: 'POST /auth/apple',
       AuthorizationType: 'NONE',
     });
   });
@@ -127,10 +131,74 @@ describe('Operational hardening (PRD 3.8)', () => {
   });
 
   test('error-rate alarms exist for the Lambdas', () => {
-    t.resourceCountIs('AWS::CloudWatch::Alarm', 3);
+    t.resourceCountIs('AWS::CloudWatch::Alarm', 5);
     t.hasResourceProperties('AWS::CloudWatch::Alarm', {
       Namespace: 'AWS/Lambda',
       MetricName: 'Errors',
     });
+  });
+});
+
+describe('Native-federation auth (POST /auth/apple)', () => {
+  test('the auth + custom-auth-trigger Lambdas run on Node 20', () => {
+    t.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'verdancy-auth',
+      Runtime: 'nodejs20.x',
+    });
+    t.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'verdancy-auth-challenge',
+      Runtime: 'nodejs20.x',
+    });
+  });
+
+  test('the app client enables the passwordless custom-auth flow', () => {
+    t.hasResourceProperties('AWS::Cognito::UserPoolClient', {
+      ExplicitAuthFlows: Match.arrayWith(['ALLOW_CUSTOM_AUTH']),
+    });
+  });
+
+  test('the pool wires all three custom-auth triggers', () => {
+    t.hasResourceProperties('AWS::Cognito::UserPool', {
+      LambdaConfig: {
+        DefineAuthChallenge: Match.anyValue(),
+        CreateAuthChallenge: Match.anyValue(),
+        VerifyAuthChallengeResponse: Match.anyValue(),
+      },
+    });
+  });
+
+  test('a generated broker secret exists', () => {
+    t.hasResourceProperties('AWS::SecretsManager::Secret', {
+      Name: 'verdancy/auth-broker-secret',
+    });
+  });
+
+  test('the auth Lambda holds only scoped Cognito admin actions (no wildcard)', () => {
+    const policies = t.findResources('AWS::IAM::Policy');
+    const stmts = Object.values(policies).flatMap(
+      (p) =>
+        (p as { Properties: { PolicyDocument: { Statement: Array<Record<string, unknown>> } } })
+          .Properties.PolicyDocument.Statement,
+    );
+    const adminStmt = stmts.find((s) => {
+      const action = s.Action;
+      const actions = Array.isArray(action) ? action : [action];
+      return actions.some(
+        (a) => typeof a === 'string' && a.startsWith('cognito-idp:AdminInitiateAuth'),
+      );
+    });
+    expect(adminStmt).toBeDefined();
+    const actions = adminStmt!.Action as string[];
+    expect(actions).toEqual(
+      expect.arrayContaining([
+        'cognito-idp:AdminGetUser',
+        'cognito-idp:AdminCreateUser',
+        'cognito-idp:AdminSetUserPassword',
+        'cognito-idp:AdminInitiateAuth',
+        'cognito-idp:AdminRespondToAuthChallenge',
+      ]),
+    );
+    expect(actions).not.toContain('cognito-idp:*');
+    expect(actions).not.toContain('*');
   });
 });
