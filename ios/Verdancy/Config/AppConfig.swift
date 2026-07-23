@@ -20,9 +20,9 @@ enum AppConfig {
     /// RevenueCat entitlement identifier that grants the subscriber experience.
     static let entitlementID = "premium"
 
-    /// While `true` (the default until Cognito/Amplify is configured), the app uses
-    /// `MockAuthService` + sample data so the UI is fully runnable offline. Flip to
-    /// `false` once `amplifyconfiguration.json` is filled in.
+    /// When `true`, the app uses `MockAuthService` + sample data so the UI is fully
+    /// runnable offline (previews/dev). `false` uses `NativeAppleAuthService` —
+    /// native Sign in with Apple against the deployed Cognito pool above.
     static let useMockAuth = false
 
     /// Free identify allowance, mirrored from the backend `FREE_AI_LIFETIME_LIMIT`

@@ -20,9 +20,6 @@ packages:
   RevenueCat:
     url: https://github.com/RevenueCat/purchases-ios
     from: "5.0.0"
-  Amplify:
-    url: https://github.com/aws-amplify/amplify-swift
-    from: "2.30.0"
 
 targets:
   Verdancy:
@@ -44,12 +41,6 @@ targets:
     dependencies:
       - package: RevenueCat
         product: RevenueCat
-      - package: Amplify
-        product: Amplify
-      - package: Amplify
-        product: AWSCognitoAuthPlugin
-      - package: Amplify
-        product: AWSPluginsCore
       - target: VerdancyWidget
 
   # "Due today" home-screen widget. Reads the App Group summary the app writes;

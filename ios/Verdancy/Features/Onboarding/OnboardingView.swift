@@ -151,8 +151,9 @@ private struct QuizChoice: View {
     }
 }
 
-/// HIG-styled Sign in with Apple trigger. We federate via Amplify (hosted domain)
-/// rather than the raw `ASAuthorizationController`, so this is a styled button.
+/// HIG-styled Sign in with Apple trigger. Tapping it runs the native
+/// `ASAuthorizationController` system sheet (see `NativeAppleAuthService`) — the
+/// styling here matches Apple's button; the sheet itself is the system UI.
 struct AppleSignInButton: View {
     let isWorking: Bool
     let action: () async -> Void

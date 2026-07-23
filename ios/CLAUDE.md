@@ -24,9 +24,12 @@ file under `Verdancy/` and re-run `xcodegen generate` (sources are folder-globbe
   models + one `APIClient` + one `AuthService`.
 - **Networking:** `URLSession` only (no third-party HTTP lib). `APIClient` attaches the Cognito JWT,
   refreshes on `401` + retries once, decodes typed `Codable`, maps status → typed `APIError`.
-- **Auth:** native Sign in with Apple federated into Cognito via **Amplify Swift (Auth only)**,
-  behind the `AuthService` protocol so it's swappable. A `MockAuthService` backs previews/dev.
-- **Two dependencies only:** RevenueCat + Amplify Auth. Everything else first-party.
+- **Auth:** native Sign in with Apple (`ASAuthorizationController` system sheet) exchanged for real
+  Cognito user-pool tokens via the backend `POST /auth/apple`, then refreshed directly against
+  Cognito — all first-party `URLSession` in `NativeAppleAuthService`, behind the `AuthService`
+  protocol so it's swappable. A `MockAuthService` backs previews/dev. (No Amplify — dropped so the
+  sign-in is the native sheet, not a web redirect, and to shed the aws-sdk-swift build weight.)
+- **One dependency:** RevenueCat. Everything else first-party.
 - **Persistence:** JSON snapshot on disk (garden + trees) + a custom on-disk image cache keyed by
   `image_ref`. No SwiftData/Core Data.
 
@@ -39,10 +42,10 @@ Verdancy/
   DesignSystem/   Theme (green + terracotta, dark mode), Haptics
   Models/         Codable models mirroring the backend contract
   Networking/     APIClient, Endpoints, APIError
-  Auth/           AuthService protocol, AmplifyAuthService, MockAuthService
+  Auth/           AuthService protocol, NativeAppleAuthService (+ Keychain/JWT/Cognito helpers), MockAuthService
   Services/       ImagePipeline, ImageCache, SnapshotStore, Notifications, Entitlements
   Features/       Today, SmartScan, MyOasis, Settings, Onboarding, Buddy
-  Resources/      Info.plist, entitlements, Assets, amplify config
+  Resources/      Info.plist, entitlements, Assets
 ```
 
 ## Invariants (don't break these)

@@ -1,8 +1,8 @@
 import Foundation
 
 /// Authentication boundary (iOS-PRD §2): native Sign in with Apple federated into
-/// Cognito. Behind a protocol so the Amplify implementation is swappable and a mock
-/// backs previews/dev.
+/// Cognito. Behind a protocol so the implementation is swappable —
+/// `NativeAppleAuthService` in the app, `MockAuthService` for previews/dev.
 protocol AuthService: AnyObject {
     /// A valid Cognito JWT (id token). Implementations refresh as needed; pass
     /// `forceRefresh` to bypass the cache after a 401.
