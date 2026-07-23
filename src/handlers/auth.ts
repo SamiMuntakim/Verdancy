@@ -44,11 +44,13 @@ export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGateway
       expectedNonce: nonce,
     });
 
-    const user = await findOrCreateFederatedUser({
-      username: `SignInWithApple_${identity.sub}`,
-      email: identity.email,
-      emailVerified: identity.emailVerified,
-    });
+    // The pool signs in by email alias, so the Cognito username must be an email.
+    // Apple's own email isn't a stable key (absent on repeat authorizations, and a
+    // "Hide My Email" relay can rotate), so derive a deterministic address from the
+    // stable Apple sub and use it as the account handle. Downstream identity is the
+    // Cognito-assigned sub, unchanged.
+    const username = `apple_${identity.sub.replace(/[^A-Za-z0-9]/g, '')}@no-reply.verdancy.app`;
+    const user = await findOrCreateFederatedUser(username);
 
     const brokerSecret = await getSecretString(requireEnv('AUTH_BROKER_SECRET_ARN'));
     const tokens = await issueTokensViaCustomAuth(user.username, brokerSecret);

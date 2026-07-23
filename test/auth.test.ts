@@ -144,17 +144,33 @@ describe('new user (first sign-in)', () => {
     expect(cognitoMock.commandCalls(AdminCreateUserCommand)).toHaveLength(1);
     expect(cognitoMock.commandCalls(AdminSetUserPasswordCommand)).toHaveLength(1);
 
-    // Username keys on the Apple sub; the create suppresses Cognito messaging.
+    // Username is an email derived from the Apple sub (the pool signs in by email
+    // alias); the create suppresses Cognito messaging.
     const create = cognitoMock.commandCalls(AdminCreateUserCommand)[0].args[0].input;
-    expect(create.Username).toBe('SignInWithApple_apple-sub-1');
+    expect(create.Username).toBe('apple_applesub1@no-reply.verdancy.app');
     expect(create.MessageAction).toBe('SUPPRESS');
+  });
+
+  test('still creates the account when Apple omits the email (repeat authorization)', async () => {
+    // Apple sends no email on repeat authorizations — the username comes from the
+    // sub, not the email, so this must still succeed.
+    verifyMock.mockResolvedValue({
+      sub: 'apple.sub.2',
+      email: undefined,
+      emailVerified: false,
+      isPrivateEmail: false,
+    });
+    const res = await call(goodBody);
+    expect(res.statusCode).toBe(200);
+    const create = cognitoMock.commandCalls(AdminCreateUserCommand)[0].args[0].input;
+    expect(create.Username).toBe('apple_applesub2@no-reply.verdancy.app');
   });
 
   test('answers the custom challenge with the broker secret', async () => {
     await call(goodBody);
     const respond = cognitoMock.commandCalls(AdminRespondToAuthChallengeCommand)[0].args[0].input;
     expect(respond.ChallengeResponses?.ANSWER).toBe(BROKER_SECRET);
-    expect(respond.ChallengeResponses?.USERNAME).toBe('SignInWithApple_apple-sub-1');
+    expect(respond.ChallengeResponses?.USERNAME).toBe('apple_applesub1@no-reply.verdancy.app');
   });
 });
 
