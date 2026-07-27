@@ -63,9 +63,9 @@ PK = `PK` (String), SK = `SK` (String), Billing = PAY_PER_REQUEST. **No GSIs.** 
 
 | PK | SK | Attributes |
 | --- | --- | --- |
-| `USER#<sub>` | `METADATA` | `email`, `created_at`, `blocked` (bool), `entitlement_active` (bool), `entitlement_expires_at` (epoch, nullable), `free_ai_used` (int — lifetime free AI calls consumed), `trees_pledged` (int), `milestones` (string set) |
+| `USER#<sub>` | `METADATA` | `email`, `created_at`, `blocked` (bool), `entitlement_active` (bool), `entitlement_expires_at` (epoch, nullable), `free_ai_used` (int — legacy lifetime free-AI counter; superseded by the daily `QUOTA#<today>` free cap), `trees_pledged` (int), `milestones` (string set) |
 | `USER#<sub>` | `QUOTA#<YYYY-MM-DD>` | `count` (int), `expires_at` (epoch TTL ≈ 48h later) — **daily cost backstop; auto-deletes** |
-| `USER#<sub>` | `PLANT#<plantId>` | `common_name`, `species` (normalized), `nickname`, `image_ref` (**S3 object key**), `toxicity`, `lighting_needs`, `fertilizer_info`, `confidence` (`High`/`Medium`/`Low`), `care` (map: water/fertilize/prune → `{cadence_days, last_done_at}`), `buddy_variant` (optional), `created_at` |
+| `USER#<sub>` | `PLANT#<plantId>` | `common_name`, `species` (normalized), `taxonomy` (`{family, genus, species, cultivar?}`), `nickname`, `image_ref` (**S3 object key**), `toxicity`, `confidence` (`High`/`Medium`/`Low`), `care` (map: water/fertilize/prune → `{cadence_days, last_done_at}` — cadences empty until the care plan runs), `care_plan` (tailored water/light/nutrients copy), `personalization` (the environment inputs), `buddy_variant` (optional), `created_at` |
 | `USER#<sub>` | `PHOTO#<plantId>#<ts>` | `image_ref` (**S3 key**), `taken_at`, `caption` |
 | `SPECIES#<normalized-species>` | `BUDDY` | `status`, `sprite_url`, `style_version`, `created_at` *(post-MVP)* |
 
@@ -90,9 +90,10 @@ Access patterns (all direct, no index): profile (`USER#<sub>`/`METADATA`); today
 | --- | --- | --- |
 | `POST /users` | — | Idempotent profile upsert. App calls on first sign-in. |
 | `POST /uploads` | — | Body `{kind:"plant"\|"photo", plantId?}` → server mints an `image_ref` under the caller's prefix and returns `{ image_ref, upload_url }` (presigned `PUT`). App uploads bytes directly to S3. |
-| `POST /identify` | **entitlement + quota** | Body: resized image (base64). Proxy → Gemini structured output → care-card JSON. Image **never stored** by the proxy. |
+| `POST /identify` | **entitlement + quota** | Body: resized image (base64). Proxy → Gemini structured output → **identity-only** JSON (name + taxonomy + toxicity; **no care schedule**). Image **never stored** by the proxy. |
 | `POST /diagnose` | **entitlement + quota** | Same pattern → triage-plan JSON. |
-| `POST /plants` | — | Save plant record (incl. `image_ref` from `POST /uploads`); seeds the `care` map. |
+| `POST /plants` | — | Save plant record (incl. `image_ref` from `POST /uploads`) + `taxonomy`; the `care` map starts **empty** (filled by the care-plan step). |
+| `POST /plants/{plantId}/care-plan` | **subscriber-only + quota** | Body: environment inputs (pot size, light, drainage, …). **Subscriber-only:** a non-subscriber gets `402` **before any Gemini call** (no credits spent). Proxy → Gemini (text-only) → tailored water/light/nutrients plan; persists the cadences + copy onto the plant. |
 | `GET /plants` | — | List garden; each item includes a fresh **presigned download URL** for its `image_ref` (+ resolved buddy fields, post-MVP). |
 | `POST /plants/{plantId}/care` | — | Body `{type:"water"\|"fertilize"\|"prune"}` → update `care.<type>.last_done_at`. |
 | `DELETE /plants/{plantId}` | — | Remove plant + its photo entries **+ delete the corresponding S3 objects**. |
@@ -108,14 +109,15 @@ Access patterns (all direct, no index): profile (`USER#<sub>`/`METADATA`); today
 
 SDK: **`@google/genai`** (the current GA `GoogleGenAI` client; the legacy `@google/generative-ai` is deprecated). Models via env: `IDENTIFY_MODEL_ID` and `DIAGNOSE_MODEL_ID`, both default **`gemini-3.5-flash`** (highest-accuracy Flash tier; do **not** downgrade to a Lite tier — care accuracy is a retention lever). Use `config: { responseMimeType: "application/json", responseSchema }`; wrap `JSON.parse` in try/catch.
 
-* **Identify** (all required): `species`, `common_name`, `toxicity` (`High|Medium|Low|None`), `water_cadence_days` (int), `fertilize_cadence_days` (int), `lighting_needs`, `fertilizer_info`, **`confidence`** (`High|Medium|Low`).
+* **Identify** (identity only — all required): `species`, `common_name`, `toxicity` (`High|Medium|Low|None`), `taxonomy` (`{family, genus, species, cultivar?}`, nullable), **`confidence`** (`High|Medium|Low`). **No care schedule** — that is deferred to the environment-tailored care plan below.
 * **Diagnose** (all required): `issue`, `likely_cause`, `severity` (`Critical|Moderate|Minor|Healthy`), `steps` (ordered array), **`confidence`** (`High|Medium|Low`).
+* **Care plan** (`POST /plants/{id}/care-plan`; text-only, no image; all required): `water {amount, cadence_days, instruction}`, `light {summary, instruction}`, `nutrients {fertilize_cadence_days (nullable), instruction}`. Tailored to the caller's environment inputs (pot size, window orientation/distance, direct sun, drainage, soil, indoor/outdoor, grow light). The `cadence_days` values seed the plant's `care` map (Today/reminders read them).
 
 **Accuracy & safety rules (baked into the prompt + handled in app):**
-1. **Bias conservative on water.** When uncertain between watering frequencies, the model must return the **longer** interval. Overwatering / root rot is the most common cause of houseplant death — under-watering is far more recoverable. State this explicitly in the system prompt.
-2. **No confident guesses.** If the plant is unidentifiable or `confidence` is `Low`, set `common_name` to `"Unknown Plant"` and **omit specific cadences** (return `water_cadence_days: null`). The app must **not** auto-apply a fake schedule; instead it prompts the user to retake a clearer photo and marks the care card tentative. (This replaces the old "default to water every 14 days" behavior, which was itself an overwatering risk.)
+1. **Bias conservative on water.** When uncertain between watering frequencies, the model must return the **longer** interval. Overwatering / root rot is the most common cause of houseplant death — under-watering is far more recoverable. State this explicitly in the care-plan system prompt.
+2. **No confident guesses.** If the plant is unidentifiable or `confidence` is `Low`, set `common_name` to `"Unknown Plant"` and `taxonomy` to `null`. The app must **not** auto-apply a fake schedule; instead it prompts the user to retake a clearer photo and marks the card tentative.
 3. **Toxicity defaults safe.** If unknown, return `toxicity: "High"` (protect pets/kids by assuming the worst).
-4. Ground all cadences in horticultural norms and prefer ranges where the species genuinely varies by environment.
+4. Ground all cadences (in the care plan) in horticultural norms and prefer ranges where the species genuinely varies by environment.
 
 ### 4.6 Entitlement (server-side truth via RevenueCat webhook)
 
@@ -147,8 +149,9 @@ The paywall UX is RevenueCat-on-device, but **the server is the source of truth 
 2. **Entitlement + quota (product gate + cost backstop):** on each AI call, **reserve before calling Gemini**:
    * Read `METADATA`; if `blocked` → `403`.
    * **Subscriber** (`entitlement_active=true`): atomically `ADD count :one` on `QUOTA#<today>` with `ConditionExpression attribute_not_exists(count) OR count < :SUBSCRIBER_DAILY_AI_LIMIT`; on failure → `429`. The date lives in the key, so day-rollover is automatic and race-free; the item TTLs away. **This is the hard cost cap** even if the client is compromised.
-   * **Non-subscriber** (`entitlement_active` false/absent): atomically `ADD free_ai_used :one` on `METADATA` with `ConditionExpression free_ai_used < :FREE_AI_LIFETIME_LIMIT`; on failure → `402` (payment required → app shows paywall). This is the free-trial gate so non-payers get a taste, not the full product.
-   * Server-side entitlement (4.6) means a bypassed paywall does **not** grant the subscriber experience; the free counter still gates it.
+   * **Non-subscriber** (`entitlement_active` false/absent): identify is a **daily** free allowance — atomically `ADD count :one` on the same date-keyed `QUOTA#<today>` with `ConditionExpression < :FREE_DAILY_AI_LIMIT` (≈2); on failure → `402` (payment required → app shows paywall). The allowance resets each UTC day and the item TTLs away.
+   * **Care plan is subscriber-only:** `POST /plants/{id}/care-plan` returns `402` for a non-subscriber **before any Gemini call** (no credits spent), then reserves the subscriber daily quota. The environment-tailored care plan is the premium value; free users get identify (name + taxonomy + toxicity) but not the schedule.
+   * Server-side entitlement (4.6) means a bypassed paywall does **not** grant the subscriber experience; the daily counter still gates it.
 3. **Key protection:** Gemini key + webhook secret only in Secrets Manager; never in the app, never in logs.
 4. **S3 hardening:** Block Public Access ON; presigned URLs only; TLS enforced via bucket policy; short URL expiry.
 5. **Webhook surface:** verify the RevenueCat shared secret on every webhook call before any write; this is the only unauthenticated route.
@@ -173,10 +176,11 @@ The 4-tab app (**Today** / **Smart Scan** / **My Oasis** / **Settings**); fetchi
 **Phase 2 — Data + storage + API shells.** DynamoDB `VerdancyData` (TTL on `expires_at`); private S3 bucket (Block Public Access, lifecycle policy); HTTP API + Cognito JWT authorizer; `501` shells for all routes; webhook route wired with secret verification only. *Accept:* authed routes `401` without a token; webhook rejects a bad secret.
 
 **Phase 3 — Logic.** Implement: the proxy (`/identify`, `/diagnose` with entitlement+quota and the accuracy/safety rules of 4.5); presigned uploads (`POST /uploads`) and download URLs in `GET /plants`; CRUD (`/users`, `/plants`, `/plants/{id}/care`, `DELETE` with S3 cascade, photos); species normalization; `/milestones`; `GET /me/trees`; the RevenueCat webhook (4.6). *Accept (document commands):*
-* `/identify` → schema-valid care card incl. `confidence` (image not persisted); low-confidence input → `Unknown Plant` with `water_cadence_days: null`. `/diagnose` → ordered `steps`.
-* `POST /uploads` → presigned `PUT` under the caller's prefix; uploading then `POST /plants` → plant appears in `GET /plants` with a working presigned download URL and seeded `care`.
+* `/identify` → schema-valid identity card (name + `taxonomy` + `toxicity` + `confidence`; **no cadences**; image not persisted); low-confidence input → `Unknown Plant` with `taxonomy: null`. `/diagnose` → ordered `steps`.
+* `POST /uploads` → presigned `PUT` under the caller's prefix; uploading then `POST /plants` → plant appears in `GET /plants` with a working presigned download URL and an **empty** `care` map.
+* `POST /plants/{id}/care-plan`: non-subscriber → `402` with **Gemini not called**; subscriber → tailored plan persisted (cadences seeded + `care_plan` copy); over the daily cap → `429`; another user's plant → `404`.
 * `care {type:"water"}` updates `last_done_at`; `DELETE` removes plant, its photos, **and** its S3 objects.
-* **Quota/rollover:** subscriber over `SUBSCRIBER_DAILY_AI_LIMIT` → `429` (Gemini not called); a call the next calendar day succeeds (new `QUOTA#<date>` key). Non-subscriber over `FREE_AI_LIFETIME_LIMIT` → `402`. `blocked=true` → `403`.
+* **Quota/rollover:** subscriber over `SUBSCRIBER_DAILY_AI_LIMIT` → `429` (Gemini not called); a call the next calendar day succeeds (new `QUOTA#<date>` key). Non-subscriber over `FREE_DAILY_AI_LIMIT` (≈2) → `402`, resetting the next UTC day. `blocked=true` → `403`.
 * **Entitlement:** webhook `INITIAL_PURCHASE` flips `entitlement_active=true` and the user is then gated by the daily cap, not the free counter; `EXPIRATION` flips it back.
 * **Auth checks:** user A on user B's plant → `403`/`404`; user A requesting a presigned URL for user B's `image_ref` → `403`.
 * `POST /milestones` twice, same id → `trees_pledged` +1 once (single conditional write); `GET /me/trees` reflects it.

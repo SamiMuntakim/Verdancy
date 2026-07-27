@@ -47,12 +47,13 @@ These are the regression-prone rules. If a change would break one, stop and flag
 2. **Object-level authorization on everything.** Every `{plantId}` route and every presigned-URL request must confirm the resource belongs to the caller (S3 keys live under `u/<sub>/…`) → else `403`/`404`. A user must never touch another user's plant, photo, or image.
 3. **Reserve quota BEFORE calling Gemini.** Never call Gemini until the reservation write succeeds.
    - Subscriber (`entitlement_active=true`): atomic `ADD count :one` on `QUOTA#<today>` with condition `attribute_not_exists(count) OR count < :SUBSCRIBER_DAILY_AI_LIMIT` → `429` on failure.
-   - Non-subscriber: atomic `ADD free_ai_used :one` on `METADATA` with condition `free_ai_used < :FREE_AI_LIFETIME_LIMIT` → `402` on failure.
-4. **Daily quota is date-keyed with TTL.** Use a `QUOTA#<YYYY-MM-DD>` item with an `expires_at` TTL. Never store a mutable rolling counter + date on the METADATA item (that path has a rollover race).
+   - Non-subscriber **identify**: atomic `ADD count :one` on the same date-keyed `QUOTA#<today>` with condition `< :FREE_DAILY_AI_LIMIT` (≈2, daily — **not** lifetime) → `402` on failure.
+   - **Care plan** (`POST /plants/{id}/care-plan`) is **subscriber-only**: `402` for non-subscribers **before any Gemini call** (no credits spent), then reserve the subscriber daily quota. Identify is free; the environment-tailored care plan is the premium value.
+4. **Daily quota is date-keyed with TTL.** Both the subscriber cap and the non-subscriber free identify allowance use a `QUOTA#<YYYY-MM-DD>` item with an `expires_at` TTL. Never store a mutable rolling counter + date on the METADATA item (that path has a rollover race).
 5. **Milestone increment is ONE atomic conditional `UpdateItem`** (`ADD milestones :midSet, trees_pledged :one` with `ConditionExpression: NOT contains(milestones, :mid)`). Never read-then-write — it double-counts on concurrent submits.
 6. **Image bytes never pass through Lambda.** Uploads and downloads use presigned S3 URLs only; Lambda issues the URLs, never proxies the bytes. (The *only* images Lambda touches are the inline bytes sent to `/identify` and `/diagnose`, which are forwarded to Gemini and immediately discarded — never written to S3.)
 7. **The server generates S3 keys** under `u/<sub>/p/<plantId>/<uuid>.jpg`. The app never supplies or chooses a key.
-8. **Never emit a fake care schedule.** On low `confidence` or an unidentifiable plant: `common_name = "Unknown Plant"`, `water_cadence_days = null`, `toxicity = "High"`. When genuinely uncertain between watering intervals, return the **longer** one — overwatering is the top plant killer and the top churn risk.
+8. **Never emit a fake care schedule.** `identify` returns identity only (name + `taxonomy` + `toxicity` + `confidence`, no cadences); on low `confidence` or an unidentifiable plant: `common_name = "Unknown Plant"`, `taxonomy = null`, `toxicity = "High"`. Cadences come from the **care plan**, whose system prompt biases conservative: when genuinely uncertain between watering intervals, return the **longer** one — overwatering is the top plant killer and the top churn risk.
 9. **Entitlement truth is server-side** (`entitlement_active` in DynamoDB, set by the RevenueCat webhook). Never gate AI access on a client-asserted subscription status.
 10. **Secrets only from Secrets Manager.** Never hardcode the Gemini key or webhook secret. Never log JWTs, images, secrets, or PII.
 11. **One DynamoDB table, no GSIs.** Don't add a GSI or a second table without explicit approval — the access patterns don't need one.
@@ -71,11 +72,11 @@ These are the regression-prone rules. If a change would break one, stop and flag
 
 ## Environment variables
 
-`TABLE_NAME`, `USER_IMAGE_BUCKET`, `GEMINI_API_KEY` (Secrets Manager), `REVENUECAT_WEBHOOK_SECRET` (Secrets Manager), `IDENTIFY_MODEL_ID`, `DIAGNOSE_MODEL_ID`, `FREE_AI_LIFETIME_LIMIT`, `SUBSCRIBER_DAILY_AI_LIMIT`.
+`TABLE_NAME`, `USER_IMAGE_BUCKET`, `GEMINI_API_KEY` (Secrets Manager), `REVENUECAT_WEBHOOK_SECRET` (Secrets Manager), `IDENTIFY_MODEL_ID`, `DIAGNOSE_MODEL_ID`, `CARE_PLAN_MODEL_ID` (defaults to identify model), `FREE_DAILY_AI_LIMIT` (free identifies per day, ≈2), `SUBSCRIBER_DAILY_AI_LIMIT`.
 
 ## Error shapes
 
-Return clean JSON errors with these statuses only: `200 / 400 / 401 / 402 / 403 / 404 / 429 / 500`. `402` = free allowance exhausted (client shows paywall). `429` = subscriber daily cap hit.
+Return clean JSON errors with these statuses only: `200 / 400 / 401 / 402 / 403 / 404 / 429 / 500`. `402` = daily free identify exhausted **or** care plan requested by a non-subscriber (client shows paywall). `429` = subscriber daily cap hit.
 
 ---
 

@@ -51,8 +51,10 @@ Verdancy/
 ## Invariants (don't break these)
 
 1. **Honor `confidence` (iOS-PRD §6).** `Low` or `common_name == "Unknown Plant"`
-   (`water_cadence_days == null`) → never auto-apply a schedule or fake reminders; prompt for a
-   clearer photo, allow saving as *Unidentified*.
+   (`taxonomy == null`) → never auto-apply a schedule or fake reminders; prompt for a
+   clearer photo, allow saving as *Unidentified* (skips the personalize-care step). Identify
+   returns identity only; the care schedule comes from the subscriber-gated care plan
+   (`POST /plants/{id}/care-plan`).
 2. **Identity from the token only.** Never send a user id in a body; the JWT `sub` is identity.
 3. **Images via presigned S3, never through the API.** Upload with the presigned `PUT`, download
    with the presigned `GET`, then cache by `image_ref`. Downsample to ≤ ~1 MP before any upload/AI call.

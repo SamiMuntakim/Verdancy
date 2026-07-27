@@ -56,18 +56,19 @@ The home tab. Answers "what does my plant need right now?"
 ### 3.2 Smart Scan
 The core magic loop. Two modes via a segmented control: **Identify** and **Diagnose**.
 * **Capture** — camera or photo-library picker → downsample to ≤1MP.
-* **Identify flow:** `POST /identify` (inline image bytes) → care card. Handle the result by confidence (§6). On the **very first scan**, this is the free "aha" — it also **plants the seed** (§8–§9): the saved plant gets a **dormant closed bud**.
+* **Identify flow:** `POST /identify` (inline image bytes) → **identity card** (common name + **taxonomy** family/genus + **pet toxicity** + confidence — **no care schedule**). Handle the result by confidence (§6). Identify is free (capped at ~2/day); the very first scan is the free "aha" and **plants the seed** (§8–§9): the saved plant gets a **dormant closed bud**.
 * **Diagnose flow:** `POST /diagnose` → triage card: `issue`, `likely_cause`, `severity` (color-coded), ordered `steps`. (Diagnose is subscriber-only; does not save a plant.)
-* **Save flow (identify, on accept):** "name your plant" step (sets `nickname`) → `POST /uploads` to mint an `image_ref` + presigned `PUT` → upload the photo directly to S3 → `POST /plants` with `image_ref` + care fields → cache image locally → land on the plant's detail showing its bud (dormant until subscribed; bloomed if subscribed).
-* **Gate handling:** `402` (free scan exhausted) → present paywall (§8). `429` (subscriber daily cap) → friendly "you've scanned a lot today" message.
+* **Save flow (identify, on accept):** "name your plant" step (sets `nickname`) → `POST /uploads` to mint an `image_ref` + presigned `PUT` → upload the photo directly to S3 → `POST /plants` with `image_ref` + `taxonomy` (empty care map) → cache image locally → **continue into the guided, skippable "Finish personalizing care" step** (below).
+* **Personalize-care flow (premium):** a short form collects the plant's environment (pot size, drainage, soil, indoor/outdoor, direct-sun hours, window orientation/distance, grow light) → `POST /plants/{id}/care-plan` → tailored **Water / Light / Nutrients** plan (e.g. "Water 1.5 cups every 10 days"). **Subscriber-only:** a non-subscriber hitting *Create care plan* → paywall (`402`, no AI call). Skippable — the plant persists and shows a "Finish personalizing care" prompt on its detail until completed. The returned `cadence_days` drive Today/reminders.
+* **Gate handling:** `402` on identify (daily free scans exhausted) or on care-plan (non-subscriber) → present paywall (§8). `429` (subscriber daily cap) → friendly "you've done a lot today" message.
 
 ### 3.3 My Oasis
 The garden / collection.
 * **Grid** of plants from `GET /plants`, each a thumbnail (presigned URL → cached by `image_ref`) + name + its **bud** (dormant closed bud if the user isn't subscribed; bloomed buddy if they are). Pull-to-refresh; renders from the disk snapshot instantly, then refreshes.
 * **Plant detail** (tap a plant):
-  * Care schedule (water / fertilize / prune cadences with next-due dates) + mark-done.
+  * The tailored **care plan** (Water / Light / Nutrients) once generated, plus mark-done for scheduled tasks; if no plan yet, a **"Finish personalizing care"** prompt that opens the personalize form.
   * The plant's **bud** (dormant or bloomed), its mood reflecting care state once bloomed (post-MVP depth).
-  * Toxicity, lighting needs, fertilizer info.
+  * Toxicity (pet/child safety), taxonomy.
   * **Growth timeline** — photos from `GET /plants/{id}/photos`; add via `POST /uploads` → `POST /plants/{id}/photos` *(deferrable within MVP)*.
   * **Delete plant** → confirm → `DELETE /plants/{plantId}` (cascades photos + S3 objects server-side).
 
@@ -101,9 +102,9 @@ The garden / collection.
 The server biases conservative and returns a `confidence` field; the app must honor it so we never hand a user a plant-killing schedule.
 
 * **`confidence == High`** → save normally, apply the schedule.
-* **`confidence == Low` OR `common_name == "Unknown Plant"`** (server returns `water_cadence_days: null`) → **do not auto-apply a schedule.** Show "We're not sure about this one — try a clearer, well-lit photo of the leaves," offer **Retake**, and allow saving as *Unidentified* with no cadence (no fake reminders). A retake consumes free-scan headroom, which is why the free allowance is 2–3, not 1 (§7).
+* **`confidence == Low` OR `common_name == "Unknown Plant"`** (server returns `taxonomy: null`) → **do not auto-apply a schedule.** Show "We're not sure about this one — try a clearer, well-lit photo of the leaves," offer **Retake**, and allow saving as *Unidentified* (skips the personalize-care step). A retake consumes free-scan headroom, which is why the daily allowance is ~2, not 1 (§7).
 * **Toxicity** — if `High`, surface a clear pet/child-safety note on the card and plant detail.
-* *(Optional, pending the backend curated-care decision)* if the care card includes `source == "curated"`, show a small **"vet-reviewed"** badge. Additive; no MVP dependency.
+* *(Optional, pending the backend curated-care decision)* if the care plan includes `source == "curated"`, show a small **"vet-reviewed"** badge. Additive; no MVP dependency.
 
 ---
 
@@ -119,7 +120,7 @@ Grounded in RevenueCat's 2026 benchmarks (75k+ apps) and the plant-app category.
 * **No lifetime.** Your tree pledge + ongoing Gemini cost is *recurring* COGS; a lifetime buyer goes underwater. (Greg can do lifetime because their marginal cost is ~0; yours isn't.)
 * **7-day free trial** (category standard; long enough for the first watering reminders to fire and the habit to begin). Most trial cancellations happen on **Day 0**, so the onboarding aha + the bloom reveal (§8) are the conversion-critical moments.
 
-**Free allowance:** set the backend `FREE_AI_LIFETIME_LIMIT` to **~2–3 identifies** — messaged to the user as "your first scan is free," with the extra 1–2 as silent retake headroom for a low-confidence first photo (§6). Diagnose is subscriber-only.
+**Free allowance:** set the backend `FREE_DAILY_AI_LIMIT` to **~2 identifies per day** — a free daily taste of identification (name + taxonomy + toxicity), with the second scan as retake headroom for a low-confidence first photo (§6). The **environment-tailored care plan is the paywalled premium value** (alongside diagnose + reminders): a non-subscriber can identify and save plants, but generating the care plan requires a subscription. Diagnose is subscriber-only.
 
 **Margin guardrails (the tree commitment is real money):**
 * **Stagger the 10 trees** across the first subscribed year rather than planting all on day one (backend §4.7) — protects against trial refunds and fast monthly churn at ~$1/tree.
@@ -133,7 +134,7 @@ Grounded in RevenueCat's 2026 benchmarks (75k+ apps) and the plant-app category.
 The exact first-run sequence. Two distinct bud states — **dormant closed bud** (before subscribing) and **bloomed buddy** (after) — are the spine of this flow.
 
 1. **Light onboarding** — 2–3 screens on the promise (identify, care reminders, real trees), then **Sign in with Apple** → `POST /users`. Don't front-load permission prompts. Keep any personalization quiz short.
-2. **First free scan — "plant your seed."** Route straight into Smart Scan. The user scans a real plant, gets the care card (the aha), names and saves it. Saving it **plants a seed**: the new plant shows a **dormant closed bud** — visibly *theirs*, clearly "forming," not yet open. This is the open loop.
+2. **First free scan — "plant your seed."** Route straight into Smart Scan. The user scans a real plant, gets its identity (the aha), names and saves it. Saving it **plants a seed**: the new plant shows a **dormant closed bud** — visibly *theirs*, clearly "forming," not yet open. This is the open loop. (Personalizing the care plan is the first subscriber-gated moment.)
 3. **Hard paywall.** Continuing past the first scan (a second scan, diagnose, reminders, or tapping the dormant bud) hits the wall. The paywall:
    * Leads with the dual value — *keep your plants alive* + *plant 10 real trees* — **not** with the bud as the primary CTA (the bud is the emotional cherry, not the whole pitch).
    * Shows the dormant bud with "Subscribe to help it bloom" as a secondary, delightful reason.
@@ -202,7 +203,7 @@ AI ID is a commodity; **retention is the moat.** The Duolingo playbook applies: 
 
 **Phase 1 — Shell + Auth.** SwiftUI app, `TabView` with four placeholder tabs, `AuthService` (Sign in with Apple → Cognito via Amplify), `APIClient` with JWT attach + refresh, `POST /users` on first sign-in. *Accept:* sign in with Apple, land on the tab bar, an authed `GET /plants` returns 200 (empty).
 
-**Phase 2 — Core loop + the seed.** Capture + downsample, Identify + Diagnose, confidence handling (§6), the save flow (`/uploads` → S3 → `/plants`), image cache, and the **dormant closed-bud state** on a saved plant. *Accept:* scan a real plant → care card → name + save → it persists and reappears on relaunch with its photo and a dormant bud; a low-confidence result creates no fake schedule.
+**Phase 2 — Core loop + the seed.** Capture + downsample, Identify + Diagnose, confidence handling (§6), the save flow (`/uploads` → S3 → `/plants`), the guided personalize-care step (`/plants/{id}/care-plan`, subscriber-gated), image cache, and the **dormant closed-bud state** on a saved plant. *Accept:* scan a real plant → identity card → name + save → personalize (subscriber) → tailored care plan, or skip → "Finish personalizing care" prompt; it persists and reappears on relaunch with its photo and a dormant bud; a low-confidence result creates no fake schedule.
 
 **Phase 3 — Garden, care, Today & streaks.** My Oasis grid + plant detail + delete; Today due-list computed locally; swipe-to-complete (`/care`) with optimistic update; **care streak**; snapshot cache + offline view; local notifications from cadences (permission requested after the first plant; reschedule on completion and launch). *Accept:* completing a task updates Today, advances the streak, and schedules the next reminder; the garden loads instantly offline.
 
@@ -214,13 +215,13 @@ AI ID is a commodity; **retention is the moat.** The Duolingo playbook applies: 
 
 ## 13. API dependencies & gaps to close
 
-Routes consumed: `POST /users`, `POST /uploads`, `POST /identify`, `POST /diagnose`, `POST /plants`, `GET /plants`, `POST /plants/{id}/care`, `DELETE /plants/{id}`, photos routes, `POST /milestones`, `GET /me/trees`.
+Routes consumed: `POST /users`, `POST /uploads`, `POST /identify`, `POST /diagnose`, `POST /plants`, `POST /plants/{id}/care-plan`, `GET /plants`, `POST /plants/{id}/care`, `DELETE /plants/{id}`, photos routes, `POST /milestones`, `GET /me/trees`.
 
 **Backend items this monetization model creates/requires:**
 1. **`DELETE /users` (account deletion)** — **App Store Guideline 5.1.1(v) makes in-app account deletion mandatory.** Must delete the user's DynamoDB items + S3 objects. Required before submission.
 2. **`PATCH /plants/{plantId}` (edit)** — rename / adjust a cadence after saving. Deferrable for MVP (nickname set at save, cadences from identify), but expected in a premium care app.
 3. **Referral attribution** — a lightweight endpoint/flow to credit "invite a friend → a tree for both" (e.g. an invite code that, on a friend's first paid conversion, records a milestone-style tree for the inviter). Needed for §10's loop; Phase 5.
-4. **Config values (already env vars in the backend):** `FREE_AI_LIFETIME_LIMIT ≈ 2–3`; keep `SUBSCRIBER_DAILY_AI_LIMIT` high enough that no real user hits it. Tree staggering + subscriber-gated milestones are specified in backend §4.7.
+4. **Config values (already env vars in the backend):** `FREE_DAILY_AI_LIMIT ≈ 2` (free identifies per day); keep `SUBSCRIBER_DAILY_AI_LIMIT` high enough that no real user hits it. Tree staggering + subscriber-gated milestones are specified in backend §4.7.
 
 ---
 
