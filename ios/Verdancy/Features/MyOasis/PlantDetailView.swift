@@ -48,6 +48,17 @@ struct PlantDetailView: View {
                 }
                 .buttonStyle(.plain)
 
+                // Light meter (premium): subscribers open it; free users see the paywall.
+                if app.isSubscribed {
+                    NavigationLink { LightMeterView(plant: current) } label: {
+                        lightMeterRow(locked: false)
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    Button { showPaywall = true } label: { lightMeterRow(locked: true) }
+                        .buttonStyle(.plain)
+                }
+
                 Button(role: .destructive) {
                     showDeleteConfirm = true
                 } label: {
@@ -86,6 +97,34 @@ struct PlantDetailView: View {
         } message: {
             Text("This removes the plant, its photos, and its images.")
         }
+    }
+
+    /// The light-meter entry row (mirrors the growth-timeline row). Shows a lock for
+    /// free users, who are routed to the paywall instead of the meter.
+    private func lightMeterRow(locked: Bool) -> some View {
+        HStack(spacing: Theme.Space.m) {
+            Image(systemName: "sun.max.fill")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(Theme.Color.leaf)
+                .frame(width: 28, height: 28)
+                .background(Theme.Color.leaf.opacity(0.12), in: Circle())
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Measure this spot's light")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(Theme.Color.textPrimary)
+                if locked {
+                    Text("Premium")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(Theme.Color.leaf)
+                }
+            }
+            Spacer()
+            Image(systemName: locked ? "lock.fill" : "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(Theme.Color.textSecondary)
+        }
+        .padding(Theme.Space.l)
+        .card()
     }
 
     /// Full-bleed stretchy hero: the photo grows on pull-down, with a scrim, the
