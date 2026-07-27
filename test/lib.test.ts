@@ -47,10 +47,7 @@ describe('applyIdentifySafety (invariant #8)', () => {
     species: 'monstera deliciosa',
     common_name: 'Monstera',
     toxicity: 'Low',
-    water_cadence_days: 7,
-    fertilize_cadence_days: 30,
-    lighting_needs: 'bright indirect',
-    fertilizer_info: 'monthly in spring',
+    taxonomy: { family: 'Araceae', genus: 'Monstera', species: 'deliciosa', cultivar: null },
     confidence: 'High',
   };
 
@@ -58,11 +55,10 @@ describe('applyIdentifySafety (invariant #8)', () => {
     expect(applyIdentifySafety(base)).toEqual(base);
   });
 
-  test('low confidence → Unknown Plant, null cadences, High toxicity', () => {
+  test('low confidence → Unknown Plant, null taxonomy, High toxicity', () => {
     const out = applyIdentifySafety({ ...base, confidence: 'Low' });
     expect(out.common_name).toBe('Unknown Plant');
-    expect(out.water_cadence_days).toBeNull();
-    expect(out.fertilize_cadence_days).toBeNull();
+    expect(out.taxonomy).toBeNull();
     expect(out.toxicity).toBe('High');
   });
 

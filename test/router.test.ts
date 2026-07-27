@@ -2,6 +2,7 @@
 jest.mock('../src/lib/gemini', () => ({
   identify: jest.fn(),
   diagnose: jest.fn(),
+  generateCarePlan: jest.fn(),
 }));
 jest.mock('@aws-sdk/s3-request-presigner', () => ({
   getSignedUrl: jest.fn().mockResolvedValue('https://signed.example/url'),
@@ -26,13 +27,14 @@ import type {
   APIGatewayProxyStructuredResultV2,
 } from 'aws-lambda';
 import { handler } from '../src/handlers/router';
-import { identify, diagnose } from '../src/lib/gemini';
+import { identify, diagnose, generateCarePlan } from '../src/lib/gemini';
 
 const ddbMock = mockClient(DynamoDBDocumentClient);
 const s3Mock = mockClient(S3Client);
 const cognitoMock = mockClient(CognitoIdentityProviderClient);
 const identifyMock = identify as jest.Mock;
 const diagnoseMock = diagnose as jest.Mock;
+const carePlanMock = generateCarePlan as jest.Mock;
 
 const SUB = 'me';
 
@@ -80,7 +82,7 @@ beforeAll(() => {
   process.env.TABLE_NAME = 'VerdancyData';
   process.env.USER_IMAGE_BUCKET = 'verdancy-user-images-test';
   process.env.USER_POOL_ID = 'us-west-1_pool';
-  process.env.FREE_AI_LIFETIME_LIMIT = '5';
+  process.env.FREE_DAILY_AI_LIMIT = '2';
   process.env.SUBSCRIBER_DAILY_AI_LIMIT = '50';
 });
 
@@ -90,6 +92,7 @@ beforeEach(() => {
   cognitoMock.reset();
   identifyMock.mockReset();
   diagnoseMock.mockReset();
+  carePlanMock.mockReset();
 });
 
 describe('identity', () => {
@@ -126,7 +129,7 @@ describe('POST /plants — object-level authorization (invariant #2)', () => {
     expect(ddbMock.commandCalls(PutCommand)).toHaveLength(0);
   });
 
-  test('happy path: seeds care, normalizes species, derives plantId from key', async () => {
+  test('happy path: empty care map, stores taxonomy, normalizes species, derives plantId', async () => {
     ddbMock.on(PutCommand).resolves({});
     const res = await run({
       routeKey: 'POST /plants',
@@ -134,15 +137,18 @@ describe('POST /plants — object-level authorization (invariant #2)', () => {
         image_ref: `u/${SUB}/p/plant-9/abc.jpg`,
         common_name: 'Monstera',
         species: 'Monstera Deliciosa, Variegata',
-        water_cadence_days: 7,
-        fertilize_cadence_days: 30,
+        taxonomy: { family: 'Araceae', genus: 'Monstera', species: 'deliciosa', cultivar: null },
       },
     });
     expect(res.statusCode).toBe(201);
     expect(bodyOf(res).plantId).toBe('plant-9');
     const item = ddbMock.commandCalls(PutCommand)[0].args[0].input.Item as Record<string, unknown>;
     expect(item.species).toBe('monstera deliciosa');
-    expect((item.care as Record<string, { cadence_days: number }>).water.cadence_days).toBe(7);
+    // Care is generated later by the personalized care plan, so it starts empty.
+    expect(
+      (item.care as Record<string, { cadence_days: number | null }>).water.cadence_days,
+    ).toBeNull();
+    expect((item.taxonomy as Record<string, string>).family).toBe('Araceae');
   });
 });
 
@@ -245,22 +251,21 @@ describe('AI proxy — reserve quota BEFORE Gemini (invariant #3)', () => {
     expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(0);
   });
 
-  test('non-subscriber under free limit → 200, Gemini called', async () => {
-    ddbMock.on(GetCommand).resolves({ Item: { entitlement_active: false, free_ai_used: 0 } });
+  test('non-subscriber under daily free limit → 200, Gemini called, date-keyed quota', async () => {
+    ddbMock.on(GetCommand).resolves({ Item: { entitlement_active: false } });
     ddbMock.on(UpdateCommand).resolves({});
     identifyMock.mockResolvedValue({ common_name: 'Monstera', confidence: 'High' });
     const res = await run({ routeKey: 'POST /identify', body: { image: 'abc' } });
     expect(res.statusCode).toBe(200);
     expect(identifyMock).toHaveBeenCalledTimes(1);
     const input = ddbMock.commandCalls(UpdateCommand)[0].args[0].input;
-    expect(input.Key).toEqual({ PK: `USER#${SUB}`, SK: 'METADATA' });
-    expect(input.ConditionExpression).toBe(
-      'attribute_not_exists(free_ai_used) OR free_ai_used < :limit',
-    );
+    // Free allowance is now DAILY (date-keyed QUOTA item), not a lifetime counter.
+    expect((input.Key?.SK as string).startsWith('QUOTA#')).toBe(true);
+    expect(input.ExpressionAttributeValues?.[':limit']).toBe(2);
   });
 
-  test('non-subscriber over free limit → 402, Gemini NOT called', async () => {
-    ddbMock.on(GetCommand).resolves({ Item: { entitlement_active: false, free_ai_used: 5 } });
+  test('non-subscriber over daily free limit → 402, Gemini NOT called', async () => {
+    ddbMock.on(GetCommand).resolves({ Item: { entitlement_active: false } });
     ddbMock.on(UpdateCommand).rejects(condFail());
     const res = await run({ routeKey: 'POST /identify', body: { image: 'abc' } });
     expect(res.statusCode).toBe(402);
@@ -284,6 +289,88 @@ describe('AI proxy — reserve quota BEFORE Gemini (invariant #3)', () => {
     const res = await run({ routeKey: 'POST /diagnose', body: { image: 'abc' } });
     expect(res.statusCode).toBe(200);
     expect(bodyOf(res).steps).toEqual(['Stop watering', 'Repot']);
+  });
+});
+
+describe('POST /plants/{plantId}/care-plan — subscriber-gated AI, no credits for free users', () => {
+  const plan = {
+    water: { amount: '1.5 cups', cadence_days: 10, instruction: 'Water 1.5 cups every 10 days' },
+    light: { summary: 'Bright indirect', instruction: 'Keep it near a south window.' },
+    nutrients: { fertilize_cadence_days: 30, instruction: 'Repot once a year.' },
+  };
+
+  test('non-subscriber → 402 BEFORE any Gemini call', async () => {
+    // getPlant (owned) then metadata (not subscribed).
+    ddbMock
+      .on(GetCommand)
+      .resolvesOnce({ Item: { PK: `USER#${SUB}`, SK: 'PLANT#p1', common_name: 'Monstera' } })
+      .resolves({ Item: { entitlement_active: false } });
+    const res = await run({
+      routeKey: 'POST /plants/{plantId}/care-plan',
+      pathParameters: { plantId: 'p1' },
+      body: { pot_size: 'Medium' },
+    });
+    expect(res.statusCode).toBe(402);
+    expect(carePlanMock).not.toHaveBeenCalled();
+    expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(0);
+  });
+
+  test('404 when the plant is not the caller’s — Gemini not called', async () => {
+    ddbMock.on(GetCommand).resolves({ Item: undefined });
+    const res = await run({
+      routeKey: 'POST /plants/{plantId}/care-plan',
+      pathParameters: { plantId: 'p1' },
+      body: {},
+    });
+    expect(res.statusCode).toBe(404);
+    expect(carePlanMock).not.toHaveBeenCalled();
+  });
+
+  test('subscriber → generates + persists cadences and the care_plan copy', async () => {
+    ddbMock
+      .on(GetCommand)
+      .resolvesOnce({
+        Item: {
+          PK: `USER#${SUB}`,
+          SK: 'PLANT#p1',
+          common_name: 'Monstera',
+          species: 'monstera deliciosa',
+        },
+      })
+      .resolves({ Item: { entitlement_active: true } });
+    ddbMock.on(UpdateCommand).resolves({
+      Attributes: { PK: `USER#${SUB}`, SK: 'PLANT#p1', care_plan: plan },
+    });
+    carePlanMock.mockResolvedValue(plan);
+
+    const res = await run({
+      routeKey: 'POST /plants/{plantId}/care-plan',
+      pathParameters: { plantId: 'p1' },
+      body: { pot_size: 'Medium', window_orientation: 'South' },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(carePlanMock).toHaveBeenCalledTimes(1);
+    // The persisting UpdateItem sets both cadences and the care_plan copy.
+    const persist = ddbMock.commandCalls(UpdateCommand).at(-1)!.args[0].input;
+    expect(persist.UpdateExpression).toContain('care.water.cadence_days = :w');
+    expect(persist.ExpressionAttributeValues?.[':w']).toBe(10);
+    expect(persist.ExpressionAttributeValues?.[':f']).toBe(30);
+    expect(bodyOf(res).plantId).toBe('p1');
+  });
+
+  test('subscriber over daily cap → 429, Gemini NOT called', async () => {
+    ddbMock
+      .on(GetCommand)
+      .resolvesOnce({ Item: { PK: `USER#${SUB}`, SK: 'PLANT#p1', common_name: 'Monstera' } })
+      .resolves({ Item: { entitlement_active: true } });
+    ddbMock.on(UpdateCommand).rejects(condFail());
+    const res = await run({
+      routeKey: 'POST /plants/{plantId}/care-plan',
+      pathParameters: { plantId: 'p1' },
+      body: {},
+    });
+    expect(res.statusCode).toBe(429);
+    expect(carePlanMock).not.toHaveBeenCalled();
   });
 });
 

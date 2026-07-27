@@ -328,7 +328,7 @@ export class VerdancyStack extends cdk.Stack {
         GEMINI_API_KEY_SECRET_NAME: GEMINI_SECRET_NAME,
         IDENTIFY_MODEL_ID: 'gemini-3.5-flash',
         DIAGNOSE_MODEL_ID: 'gemini-3.5-flash',
-        FREE_AI_LIFETIME_LIMIT: '5',
+        FREE_DAILY_AI_LIMIT: '2',
         SUBSCRIBER_DAILY_AI_LIMIT: '50',
       },
     });
@@ -492,6 +492,7 @@ export class VerdancyStack extends cdk.Stack {
       { path: '/diagnose', methods: [HttpMethod.POST] },
       { path: '/plants', methods: [HttpMethod.POST, HttpMethod.GET] },
       { path: '/plants/{plantId}/care', methods: [HttpMethod.POST] },
+      { path: '/plants/{plantId}/care-plan', methods: [HttpMethod.POST] },
       { path: '/plants/{plantId}', methods: [HttpMethod.DELETE, HttpMethod.PATCH] },
       { path: '/plants/{plantId}/photos', methods: [HttpMethod.POST, HttpMethod.GET] },
       { path: '/milestones', methods: [HttpMethod.POST] },

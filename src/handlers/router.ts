@@ -13,12 +13,13 @@ import {
   getMetadata,
   upsertUser,
   reserveSubscriberQuota,
-  reserveFreeAi,
+  reserveFreeDailyAi,
   putPlant,
   getPlant,
   listPlants,
   touchCare,
   updatePlant,
+  updatePlantCarePlan,
   listPhotos,
   putPhoto,
   deletePlantAndPhotos,
@@ -35,17 +36,15 @@ import {
 } from '../lib/dynamo';
 import { presignPut, presignGet, deleteObjects, deleteByPrefix } from '../lib/s3';
 import { deleteCognitoUser } from '../lib/cognito';
-import { identify, diagnose } from '../lib/gemini';
+import { identify, diagnose, generateCarePlan, type CarePlanInputs } from '../lib/gemini';
 
-const FREE_AI_LIFETIME_LIMIT = () => intEnv('FREE_AI_LIFETIME_LIMIT', 5);
+const FREE_DAILY_AI_LIMIT = () => intEnv('FREE_DAILY_AI_LIMIT', 2);
 const SUBSCRIBER_DAILY_AI_LIMIT = () => intEnv('SUBSCRIBER_DAILY_AI_LIMIT', 50);
 // Defense-in-depth on cost: the app resizes to ~1MP (~250KB) before sending, so
 // anything past ~5MB of base64 is rejected before we reserve quota or call Gemini.
 const MAX_IMAGE_BASE64_CHARS = 7_000_000;
 
 const asString = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
-const numOrNull = (v: unknown): number | null =>
-  typeof v === 'number' && Number.isFinite(v) ? v : null;
 
 /** A cadence must be a positive integer, or null to clear the schedule. */
 function cadenceOrNull(v: unknown): number | null {
@@ -80,8 +79,21 @@ async function reserveAiQuota(sub: string): Promise<void> {
   if (meta?.entitlement_active) {
     await reserveSubscriberQuota(sub, SUBSCRIBER_DAILY_AI_LIMIT());
   } else {
-    await reserveFreeAi(sub, FREE_AI_LIFETIME_LIMIT());
+    // Free identify is capped per day (not lifetime); a 3rd scan the same day → 402.
+    await reserveFreeDailyAi(sub, FREE_DAILY_AI_LIMIT());
   }
+}
+
+/**
+ * Care-plan generation is a SUBSCRIBER-ONLY AI call. Reserve the subscriber daily
+ * quota before Gemini; a non-subscriber gets 402 (paywall) BEFORE any Gemini call,
+ * so no credits are spent on unpaid users.
+ */
+async function reserveCarePlanQuota(sub: string): Promise<void> {
+  const meta = await getMetadata(sub);
+  if (meta?.blocked) throw new ApiError(403, 'Account is blocked');
+  if (!meta?.entitlement_active) throw new ApiError(402, 'A care plan requires a subscription');
+  await reserveSubscriberQuota(sub, SUBSCRIBER_DAILY_AI_LIMIT());
 }
 
 // ---------------------------------------------------------------------------
@@ -135,6 +147,9 @@ async function handleCreatePlant(sub: string, event: APIGatewayProxyEventV2WithJ
   assertOwnsKey(sub, body.image_ref); // 403 unless under the caller's prefix
   const imageRef = body.image_ref as string;
   const plantId = plantIdFromKey(imageRef);
+  // Identify now returns identity only (name + taxonomy + toxicity). The care
+  // schedule is generated later, tailored to the plant's environment, via
+  // POST /plants/{plantId}/care-plan — so the care map starts empty.
   const item: PlantRecord = {
     PK: userPk(sub),
     SK: plantSk(plantId),
@@ -143,18 +158,39 @@ async function handleCreatePlant(sub: string, event: APIGatewayProxyEventV2WithJ
     nickname: asString(body.nickname) ?? null,
     image_ref: imageRef,
     toxicity: asString(body.toxicity) ?? 'High',
-    lighting_needs: asString(body.lighting_needs) ?? null,
-    fertilizer_info: asString(body.fertilizer_info) ?? null,
+    taxonomy: (body.taxonomy as Record<string, unknown> | undefined) ?? null,
     confidence: asString(body.confidence) ?? null,
     care: {
-      water: { cadence_days: numOrNull(body.water_cadence_days), last_done_at: null },
-      fertilize: { cadence_days: numOrNull(body.fertilize_cadence_days), last_done_at: null },
+      water: { cadence_days: null, last_done_at: null },
+      fertilize: { cadence_days: null, last_done_at: null },
       prune: { cadence_days: null, last_done_at: null },
     },
     created_at: nowIso(),
   };
   await putPlant(item);
   return json(201, plantView(item));
+}
+
+async function handleCarePlan(sub: string, event: APIGatewayProxyEventV2WithJWTAuthorizer) {
+  const plantId = pathParam(event, 'plantId');
+  const plant = await getPlant(sub, plantId); // object-level auth (invariant #2)
+  if (!plant) throw new ApiError(404, 'Plant not found');
+  const inputs = parseJsonBody<CarePlanInputs>(event);
+
+  await reserveCarePlanQuota(sub); // 403 blocked / 402 non-subscriber / 429 over cap — before Gemini
+  const result = await generateCarePlan(
+    asString(plant.common_name) ?? 'Unknown',
+    asString(plant.species) ?? '',
+    inputs,
+  );
+
+  const updated = await updatePlantCarePlan(sub, plantId, {
+    waterCadenceDays: result.water.cadence_days,
+    fertilizeCadenceDays: result.nutrients.fertilize_cadence_days,
+    carePlan: result as unknown as Record<string, unknown>,
+    personalization: inputs as unknown as Record<string, unknown>,
+  });
+  return json(200, plantView(updated));
 }
 
 async function handleListPlants(sub: string) {
@@ -327,6 +363,8 @@ export const handler = async (
         return await handleListPlants(sub);
       case 'POST /plants/{plantId}/care':
         return await handleCare(sub, event);
+      case 'POST /plants/{plantId}/care-plan':
+        return await handleCarePlan(sub, event);
       case 'DELETE /plants/{plantId}':
         return await handleDeletePlant(sub, event);
       case 'PATCH /plants/{plantId}':

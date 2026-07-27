@@ -137,6 +137,30 @@ export async function reserveSubscriberQuota(sub: string, dailyLimit: number): P
 }
 
 /**
+ * Non-subscriber DAILY free allowance. Same date-keyed `QUOTA#<today>` item and
+ * atomic `ADD count :one` as the subscriber cap, but with the free daily limit
+ * and a 402 (paywall) on the conditional failure. The date lives in the key, so
+ * the allowance resets each UTC day and the item TTLs away.
+ */
+export async function reserveFreeDailyAi(sub: string, dailyLimit: number): Promise<void> {
+  try {
+    await ddb.send(
+      new UpdateCommand({
+        TableName: table(),
+        Key: { PK: userPk(sub), SK: quotaSk(todayUtc()) },
+        UpdateExpression: 'SET expires_at = if_not_exists(expires_at, :ttl) ADD #count :one',
+        ConditionExpression: 'attribute_not_exists(#count) OR #count < :limit',
+        ExpressionAttributeNames: { '#count': 'count' },
+        ExpressionAttributeValues: { ':one': 1, ':ttl': quotaTtlEpoch(), ':limit': dailyLimit },
+      }),
+    );
+  } catch (err) {
+    if (isConditionalFailure(err)) throw new ApiError(402, 'Free daily allowance exhausted');
+    throw err;
+  }
+}
+
+/**
  * Non-subscriber lifetime free allowance. Atomic `ADD free_ai_used :one` on the
  * METADATA item, allowed only while under the limit. Throws 402 on the
  * conditional failure (client shows the paywall). The `attribute_not_exists`
@@ -258,6 +282,50 @@ export async function updatePlant(
         UpdateExpression: 'SET ' + sets.join(', '),
         ConditionExpression: 'attribute_exists(SK)',
         ExpressionAttributeValues: values,
+        ReturnValues: 'ALL_NEW',
+      }),
+    );
+    return res.Attributes as PlantRecord;
+  } catch (err) {
+    if (isConditionalFailure(err)) throw new ApiError(404, 'Plant not found');
+    throw err;
+  }
+}
+
+export interface CarePlanPersist {
+  waterCadenceDays: number;
+  fertilizeCadenceDays: number | null;
+  carePlan: Record<string, unknown>;
+  personalization: Record<string, unknown>;
+}
+
+/**
+ * Apply a generated care plan to a plant: set the water/fertilize cadences (the
+ * Today/reminder engine reads these) while preserving each task's `last_done_at`,
+ * and store the rich `care_plan` copy + the raw `personalization` inputs (for
+ * later editing / regeneration). Conditioned on the item existing under the
+ * caller's PK → 404 if it isn't theirs.
+ */
+export async function updatePlantCarePlan(
+  sub: string,
+  plantId: string,
+  plan: CarePlanPersist,
+): Promise<PlantRecord> {
+  try {
+    const res = await ddb.send(
+      new UpdateCommand({
+        TableName: table(),
+        Key: { PK: userPk(sub), SK: plantSk(plantId) },
+        UpdateExpression:
+          'SET care.water.cadence_days = :w, care.fertilize.cadence_days = :f, ' +
+          'care_plan = :cp, personalization = :pz',
+        ConditionExpression: 'attribute_exists(SK)',
+        ExpressionAttributeValues: {
+          ':w': plan.waterCadenceDays,
+          ':f': plan.fertilizeCadenceDays,
+          ':cp': plan.carePlan,
+          ':pz': plan.personalization,
+        },
         ReturnValues: 'ALL_NEW',
       }),
     );
