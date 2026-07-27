@@ -26,6 +26,7 @@ struct OnboardingView: View {
     @State private var isWorking = false
     @State private var error: String?
     @State private var petsAnswer: Bool?
+    @State private var showEmail = false
 
     private let slides: [(icon: String, title: String, body: String)] = [
         ("camera.viewfinder", "Identify any plant", "Snap a photo and get a care card in seconds."),
@@ -67,6 +68,10 @@ struct OnboardingView: View {
                     GoogleSignInButton(isWorking: isWorking) {
                         await signIn("google") { try await app.signInWithGoogle() }
                     }
+                    Button("Continue with email") { showEmail = true }
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(Theme.Color.textSecondary)
+                        .disabled(isWorking)
                     if let error {
                         Text(error).font(.footnote).foregroundStyle(Theme.Color.danger)
                     }
@@ -80,6 +85,9 @@ struct OnboardingView: View {
             }
         }
         .onAppear { Analytics.log("onboarding_viewed") }
+        .sheet(isPresented: $showEmail) {
+            EmailAuthView().environment(app)
+        }
     }
 
     private var petsQuiz: some View {
@@ -186,31 +194,50 @@ struct AppleSignInButton: View {
     }
 }
 
-/// "Continue with Google" trigger. Runs OAuth + PKCE in an in-app browser
-/// (`GoogleSignInController`). Neutral styling to contrast Apple's black button;
-/// swap in the official Google logo mark before store submission for brand
-/// compliance.
+/// "Sign in with Google" trigger, styled to Google's Sign-In branding guidelines:
+/// the official multi-color "G" mark (asset `GoogleLogo`, unmodified), the exact
+/// neutral light/dark button colors, and the canonical label. Runs OAuth + PKCE in
+/// an in-app browser (`GoogleSignInController`).
 struct GoogleSignInButton: View {
+    @Environment(\.colorScheme) private var scheme
     let isWorking: Bool
     let action: () async -> Void
+
+    private var isDark: Bool { scheme == .dark }
+    // Google's specified button colors.
+    private var background: Color {
+        isDark ? Color(red: 0.075, green: 0.075, blue: 0.078) : .white // #131314 / #FFFFFF
+    }
+    private var stroke: Color {
+        isDark
+            ? Color(red: 0.557, green: 0.569, blue: 0.561) // #8E918F
+            : Color(red: 0.455, green: 0.467, blue: 0.459) // #747775
+    }
+    private var label: Color {
+        isDark
+            ? Color(red: 0.890, green: 0.890, blue: 0.890) // #E3E3E3
+            : Color(red: 0.122, green: 0.122, blue: 0.122) // #1F1F1F
+    }
 
     var body: some View {
         Button {
             Task { await action() }
         } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "g.circle.fill")
-                Text("Continue with Google").fontWeight(.medium)
+            HStack(spacing: 10) {
+                Image("GoogleLogo")
+                    .resizable()
+                    .renderingMode(.original)
+                    .frame(width: 18, height: 18)
+                Text("Sign in with Google").font(.system(size: 17, weight: .medium))
             }
-            .font(.headline)
             .frame(maxWidth: .infinity)
             .frame(height: 52)
-            .foregroundStyle(Theme.Color.textPrimary)
-            .background(Theme.Color.surface)
+            .foregroundStyle(label)
+            .background(background)
             .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.button, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: Theme.Radius.button, style: .continuous)
-                    .strokeBorder(Theme.Color.separator, lineWidth: 1)
+                    .strokeBorder(stroke, lineWidth: 1)
             )
         }
         .disabled(isWorking)

@@ -28,5 +28,10 @@ final class MockAuthService: AuthService {
         signedIn = true
     }
 
+    func signInWithEmail(_ email: String, password: String) async throws {
+        try? await Task.sleep(for: .milliseconds(300))
+        signedIn = true
+    }
+
     func signOut() async { signedIn = false }
 }

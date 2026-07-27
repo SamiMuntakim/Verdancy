@@ -138,6 +138,11 @@ final class AppModel {
         await completeSignIn()
     }
 
+    func signInWithEmail(_ email: String, password: String) async throws {
+        try await auth.signInWithEmail(email, password: password)
+        await completeSignIn()
+    }
+
     /// Shared post-sign-in setup, whichever provider was used.
     private func completeSignIn() async {
         try? await api.createUser() // idempotent profile upsert (iOS-PRD §8.1)

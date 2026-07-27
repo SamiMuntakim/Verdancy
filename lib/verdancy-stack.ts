@@ -167,6 +167,8 @@ export class VerdancyStack extends cdk.Stack {
         // Native Sign in with Apple mints tokens through the admin password flow in
         // the auth Lambda (backend-only; requires the Lambda's AWS credentials).
         adminUserPassword: true,
+        // Email/password sign-in from the app (plain password over TLS to Cognito).
+        userPassword: true,
       },
       supportedIdentityProviders: identityProviders,
       preventUserExistenceErrors: true,

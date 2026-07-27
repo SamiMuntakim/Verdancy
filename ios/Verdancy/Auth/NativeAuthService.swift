@@ -64,6 +64,12 @@ final class NativeAuthService: AuthService {
             nonce: credential.rawNonce)
     }
 
+    func signInWithEmail(_ email: String, password: String) async throws {
+        let session = try await EmailAuth.signIn(email: email, password: password)
+        tokens = session
+        TokenStore.save(session)
+    }
+
     func signOut() async {
         tokens = nil
         refreshTask = nil

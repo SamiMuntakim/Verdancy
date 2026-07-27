@@ -159,9 +159,12 @@ describe('Native-federation auth (POST /auth/apple)', () => {
     expect(names).not.toContain('verdancy-auth-challenge');
   });
 
-  test('the app client enables the admin password flow (backend-only)', () => {
+  test('the app client enables admin (federated) + user (email) password flows', () => {
     t.hasResourceProperties('AWS::Cognito::UserPoolClient', {
       ExplicitAuthFlows: Match.arrayWith(['ALLOW_ADMIN_USER_PASSWORD_AUTH']),
+    });
+    t.hasResourceProperties('AWS::Cognito::UserPoolClient', {
+      ExplicitAuthFlows: Match.arrayWith(['ALLOW_USER_PASSWORD_AUTH']),
     });
   });
 

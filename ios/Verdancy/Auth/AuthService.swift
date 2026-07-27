@@ -12,5 +12,8 @@ protocol AuthService: AnyObject {
     func userId() async -> String?
     func signInWithApple() async throws
     func signInWithGoogle() async throws
+    /// Email/password sign-in (sign-up, verification, and reset are handled by
+    /// `EmailAuth` directly; this is the step that yields a stored session).
+    func signInWithEmail(_ email: String, password: String) async throws
     func signOut() async
 }
