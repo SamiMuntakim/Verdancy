@@ -10,6 +10,7 @@ struct PlantDetailView: View {
     @State private var showDeleteConfirm = false
     @State private var showEdit = false
     @State private var showPaywall = false
+    @State private var showPersonalize = false
 
     /// Re-read from the store so optimistic care updates are reflected live.
     private var current: Plant {
@@ -22,7 +23,7 @@ struct PlantDetailView: View {
                 heroHeader
 
                 Group {
-                    careSection
+                    careContent
                     factsSection
                     healthSection
 
@@ -84,6 +85,16 @@ struct PlantDetailView: View {
             }
         }
         .sheet(isPresented: $showEdit) { PlantEditView(plant: current) }
+        .sheet(isPresented: $showPersonalize) {
+            NavigationStack {
+                PersonalizeCareView(plant: current) { showPersonalize = false }
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Cancel") { showPersonalize = false }
+                        }
+                    }
+            }
+        }
         .confirmationDialog(
             "Delete \(current.displayName)?",
             isPresented: $showDeleteConfirm, titleVisibility: .visible
@@ -166,14 +177,52 @@ struct PlantDetailView: View {
         .frame(height: 300)
     }
 
-    private var careSection: some View {
+    /// Either the tailored care plan (+ a mark-done schedule), or a prompt to
+    /// finish personalizing care (iOS-PRD §3.3).
+    @ViewBuilder
+    private var careContent: some View {
+        if let plan = current.carePlan {
+            CarePlanView(plan: plan)
+            scheduleSection
+            Button("Update care plan") { showPersonalize = true }
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(Theme.Color.leaf)
+                .frame(maxWidth: .infinity)
+        } else {
+            personalizeCTA
+        }
+    }
+
+    /// The "Finish personalizing care" prompt shown until a plan is generated.
+    private var personalizeCTA: some View {
         VStack(alignment: .leading, spacing: Theme.Space.m) {
-            Text("Care").font(.headline)
-            let scheduled = CareType.allCases.filter { current.care.task(for: $0).cadenceDays != nil }
-            if scheduled.isEmpty {
-                Text("No schedule yet — identify this plant to get care reminders.")
-                    .font(.footnote).foregroundStyle(Theme.Color.textSecondary)
-            } else {
+            HStack(spacing: Theme.Space.m) {
+                Image(systemName: "sparkles")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Theme.Color.leaf)
+                    .frame(width: 28, height: 28)
+                    .background(Theme.Color.leaf.opacity(0.12), in: Circle())
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Finish personalizing care").font(.subheadline.weight(.semibold))
+                    Text("Tell us where you keep \(current.displayName) for a tailored water, light, and feeding plan.")
+                        .font(.caption).foregroundStyle(Theme.Color.textSecondary)
+                }
+            }
+            Button("Personalize care") { showPersonalize = true }
+                .buttonStyle(.primary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(Theme.Space.l)
+        .card()
+    }
+
+    /// Actionable mark-done rows for each scheduled task (cadence + "Done").
+    @ViewBuilder
+    private var scheduleSection: some View {
+        let scheduled = CareType.allCases.filter { current.care.task(for: $0).cadenceDays != nil }
+        if !scheduled.isEmpty {
+            VStack(alignment: .leading, spacing: Theme.Space.m) {
+                Text("Log care").font(.headline)
                 ForEach(scheduled, id: \.self) { type in
                     let cadence = current.care.task(for: type).cadenceDays ?? 0
                     HStack(spacing: Theme.Space.m) {
@@ -202,10 +251,10 @@ struct PlantDetailView: View {
                     }
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(Theme.Space.l)
+            .card()
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(Theme.Space.l)
-        .card()
     }
 
     private var factsSection: some View {

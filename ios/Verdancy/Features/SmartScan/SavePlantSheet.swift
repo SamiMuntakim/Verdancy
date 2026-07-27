@@ -13,6 +13,9 @@ struct SavePlantSheet: View {
     @State private var nickname: String
     @State private var isSaving = false
     @State private var error: String?
+    /// Set on a successful save of an identified plant → push the guided
+    /// "personalize care" step (iOS-PRD §3.2/§3.3).
+    @State private var savedPlant: Plant?
 
     init(card: CareCard, jpeg: Data, onSaved: @escaping () -> Void) {
         self.card = card
@@ -50,7 +53,7 @@ struct SavePlantSheet: View {
                 Section {
                     Text(card.isUnidentified
                          ? "We'll save this without a care schedule until you identify it."
-                         : "We'll set up a watering schedule and reminders for you.")
+                         : "Next, tell us where you keep it and we'll build a tailored care plan.")
                     .font(.footnote)
                     .foregroundStyle(Theme.Color.textSecondary)
                 }
@@ -69,6 +72,10 @@ struct SavePlantSheet: View {
                 }
             }
             .overlay { if isSaving { ProgressView().tint(Theme.Color.leaf) } }
+            .navigationDestination(item: $savedPlant) { plant in
+                PersonalizeCareView(plant: plant) { onSaved(); dismiss() }
+                    .navigationBarBackButtonHidden(true)
+            }
         }
     }
 
@@ -78,20 +85,30 @@ struct SavePlantSheet: View {
         let name = nickname.trimmingCharacters(in: .whitespaces)
         let nicknameOrNil = name.isEmpty ? nil : name
         do {
+            let saved: Plant
             if AppConfig.useMockAuth {
-                app.garden.insert(Plant.mock(from: card, nickname: nicknameOrNil))
+                saved = Plant.mock(from: card, nickname: nicknameOrNil)
+                app.garden.insert(saved)
             } else {
                 let ticket = try await app.api.createUpload(kind: "plant")
                 try await app.api.uploadImage(to: ticket.uploadUrl, jpeg: jpeg)
                 await ImageCache.shared.store(jpeg, imageRef: ticket.imageRef)
                 let request = CreatePlantRequest(from: card, imageRef: ticket.imageRef, nickname: nicknameOrNil)
-                let plant = try await app.api.savePlant(request)
-                app.garden.insert(plant)
+                saved = try await app.api.savePlant(request)
+                app.garden.insert(saved)
             }
             Analytics.log("plant_saved", ["unidentified": String(card.isUnidentified)])
             Haptics.success()
-            onSaved()
-            dismiss()
+            isSaving = false
+            // Identified plants continue into the guided "personalize care" step;
+            // an unidentified plant has no schedule to tailor, so we finish here.
+            if card.isUnidentified {
+                onSaved()
+                dismiss()
+            } else {
+                savedPlant = saved
+            }
+            return
         } catch {
             self.error = (error as? APIError)?.userMessage ?? "Couldn't save. Try again."
         }
