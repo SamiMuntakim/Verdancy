@@ -9,10 +9,12 @@ struct Plant: Codable, Identifiable, Hashable {
     let nickname: String?
     let imageRef: String?
     let toxicity: String?
+    let taxonomy: Taxonomy?
     let lightingNeeds: String?
     let fertilizerInfo: String?
     let confidence: String?
     let care: CareMap
+    let carePlan: CarePlan?
     let createdAt: String?
     let downloadUrl: String?
     let buddy: Buddy?
@@ -21,19 +23,22 @@ struct Plant: Codable, Identifiable, Hashable {
     var displayName: String { nickname?.isEmpty == false ? nickname! : commonName }
     var toxicityLevel: Toxicity? { toxicity.flatMap(Toxicity.init(rawValue:)) }
 
+    /// No personalized care plan generated yet → prompt "Finish personalizing care."
+    var needsCarePlan: Bool { carePlan == nil }
+
     /// Copy with a new care map (for optimistic local updates).
     func withCare(_ care: CareMap) -> Plant {
         Plant(plantId: plantId, commonName: commonName, species: species, nickname: nickname,
-              imageRef: imageRef, toxicity: toxicity, lightingNeeds: lightingNeeds,
-              fertilizerInfo: fertilizerInfo, confidence: confidence, care: care,
+              imageRef: imageRef, toxicity: toxicity, taxonomy: taxonomy, lightingNeeds: lightingNeeds,
+              fertilizerInfo: fertilizerInfo, confidence: confidence, care: care, carePlan: carePlan,
               createdAt: createdAt, downloadUrl: downloadUrl, buddy: buddy)
     }
 
     /// Copy with edited nickname + care (for the local edit path).
     func edited(nickname: String?, care: CareMap) -> Plant {
         Plant(plantId: plantId, commonName: commonName, species: species, nickname: nickname,
-              imageRef: imageRef, toxicity: toxicity, lightingNeeds: lightingNeeds,
-              fertilizerInfo: fertilizerInfo, confidence: confidence, care: care,
+              imageRef: imageRef, toxicity: toxicity, taxonomy: taxonomy, lightingNeeds: lightingNeeds,
+              fertilizerInfo: fertilizerInfo, confidence: confidence, care: care, carePlan: carePlan,
               createdAt: createdAt, downloadUrl: downloadUrl, buddy: buddy)
     }
 }

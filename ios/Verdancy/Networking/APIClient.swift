@@ -75,6 +75,14 @@ final class APIClient {
         try await send(Endpoint("POST", "/plants", body: encode(request)), as: Plant.self)
     }
 
+    /// Generate the environment-tailored care plan for a saved plant. Subscriber-only:
+    /// a `402` (→ `.paywall`) means the server didn't call Gemini (no credits spent).
+    func generateCarePlan(plantId: String, _ inputs: Personalization) async throws -> Plant {
+        try await send(
+            Endpoint("POST", "/plants/\(plantId)/care-plan", body: encode(CarePlanRequest(inputs))),
+            as: Plant.self)
+    }
+
     func logCare(plantId: String, type: CareType) async throws {
         _ = try await sendRaw(Endpoint("POST", "/plants/\(plantId)/care",
                                        body: encode(CareRequest(type: type.rawValue))))

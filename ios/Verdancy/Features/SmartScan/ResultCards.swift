@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// Identify result — the care card (iOS-PRD §3.2/§6).
+/// Identify result — identity only: name, taxonomy, and pet toxicity (iOS-PRD §3.2/§6).
+/// The care schedule comes later, tailored to the plant's environment.
 struct CareCardView: View {
     let card: CareCard
 
@@ -10,7 +11,7 @@ struct CareCardView: View {
                 Text(card.commonName)
                     .font(.title2.weight(.bold))
                     .foregroundStyle(Theme.Color.textPrimary)
-                Text(card.species.capitalized)
+                Text(card.taxonomy?.scientificName ?? card.species.capitalized)
                     .font(.subheadline.italic())
                     .foregroundStyle(Theme.Color.textSecondary)
             }
@@ -22,14 +23,9 @@ struct CareCardView: View {
                 )
                 .font(.subheadline)
                 .foregroundStyle(Theme.Color.warning)
-            } else {
-                if let water = card.waterCadenceDays {
-                    CareRow(icon: "drop.fill", label: "Water", value: "Every \(water) days")
-                }
-                if let fert = card.fertilizeCadenceDays {
-                    CareRow(icon: "leaf.fill", label: "Fertilize", value: "Every \(fert) days")
-                }
-                CareRow(icon: "sun.max.fill", label: "Light", value: card.lightingNeeds)
+            } else if let taxonomy = card.taxonomy {
+                CareRow(icon: "allergens", label: "Family", value: taxonomy.family)
+                CareRow(icon: "leaf.arrow.circlepath", label: "Genus", value: taxonomy.genus)
             }
 
             if card.toxicityLevel?.isConcerning == true {

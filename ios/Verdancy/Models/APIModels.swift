@@ -64,10 +64,7 @@ struct CreatePlantRequest: Encodable {
     let species: String
     let nickname: String?
     let toxicity: String?
-    let waterCadenceDays: Int?
-    let fertilizeCadenceDays: Int?
-    let lightingNeeds: String?
-    let fertilizerInfo: String?
+    let taxonomy: Taxonomy?
     let confidence: String?
 
     enum CodingKeys: String, CodingKey {
@@ -76,26 +73,104 @@ struct CreatePlantRequest: Encodable {
         case species
         case nickname
         case toxicity
-        case waterCadenceDays = "water_cadence_days"
-        case fertilizeCadenceDays = "fertilize_cadence_days"
-        case lightingNeeds = "lighting_needs"
-        case fertilizerInfo = "fertilizer_info"
+        case taxonomy
         case confidence
     }
 
-    /// Build a save request from an identify result, dropping cadences when the
-    /// plant is unidentified (iOS-PRD §6 — no fake schedule).
+    /// Build a save request from an identify result. Identify carries identity
+    /// only now — the care schedule is generated later from the plant's
+    /// environment (`POST /plants/{id}/care-plan`).
     init(from card: CareCard, imageRef: String, nickname: String?) {
         self.imageRef = imageRef
         self.commonName = card.commonName
         self.species = card.species
         self.nickname = nickname
         self.toxicity = card.toxicity
-        self.waterCadenceDays = card.isUnidentified ? nil : card.waterCadenceDays
-        self.fertilizeCadenceDays = card.isUnidentified ? nil : card.fertilizeCadenceDays
-        self.lightingNeeds = card.lightingNeeds
-        self.fertilizerInfo = card.fertilizerInfo
+        self.taxonomy = card.taxonomy
         self.confidence = card.confidence
+    }
+}
+
+// MARK: - Personalized care
+
+/// The "Finish personalizing care" form state (kept concise on purpose). Maps to
+/// the snake_case body the care-plan endpoint expects via `CarePlanRequest`.
+struct Personalization: Hashable {
+    var potSize: PotSize = .medium
+    var hasDrainage: Bool = true
+    var soilType: SoilType = .regular
+    var indoor: Bool = true
+    var directSunlight: Bool = false
+    var directSunlightHours: Int = 2
+    var windowOrientation: WindowOrientation? = nil
+    var distanceFromWindow: WindowDistance = .within3ft
+    var growLight: Bool = false
+
+    enum PotSize: String, CaseIterable, Identifiable, Hashable {
+        case small = "Small", medium = "Medium", large = "Large"
+        var id: String { rawValue }
+        /// A concrete hint the model can size a water amount from.
+        var apiValue: String {
+            switch self {
+            case .small: return "Small (≤4 in / 10 cm diameter)"
+            case .medium: return "Medium (5–8 in / 12–20 cm diameter)"
+            case .large: return "Large (9+ in / 23+ cm diameter)"
+            }
+        }
+    }
+
+    enum SoilType: String, CaseIterable, Identifiable, Hashable {
+        case regular = "Regular", wellDraining = "Well-draining", moisture = "Moisture-retaining"
+        var id: String { rawValue }
+    }
+
+    enum WindowOrientation: String, CaseIterable, Identifiable, Hashable {
+        case north = "North", south = "South", east = "East", west = "West"
+        var id: String { rawValue }
+    }
+
+    enum WindowDistance: String, CaseIterable, Identifiable, Hashable {
+        case onSill = "On the sill", within3ft = "Within 3 ft"
+        case within6ft = "3–6 ft away", farther = "More than 6 ft"
+        var id: String { rawValue }
+    }
+}
+
+/// `POST /plants/{id}/care-plan` body — explicit snake_case keys (the shared
+/// request encoder does no key conversion).
+struct CarePlanRequest: Encodable {
+    let potSize: String?
+    let hasDrainage: Bool?
+    let soilType: String?
+    let indoor: Bool?
+    let directSunlight: Bool?
+    let directSunlightHours: Int?
+    let windowOrientation: String?
+    let distanceFromWindow: String?
+    let growLight: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case potSize = "pot_size"
+        case hasDrainage = "has_drainage"
+        case soilType = "soil_type"
+        case indoor
+        case directSunlight = "direct_sunlight"
+        case directSunlightHours = "direct_sunlight_hours"
+        case windowOrientation = "window_orientation"
+        case distanceFromWindow = "distance_from_window"
+        case growLight = "grow_light"
+    }
+
+    init(_ p: Personalization) {
+        potSize = p.potSize.apiValue
+        hasDrainage = p.hasDrainage
+        soilType = p.soilType.rawValue
+        indoor = p.indoor
+        directSunlight = p.directSunlight
+        directSunlightHours = p.directSunlight ? p.directSunlightHours : 0
+        windowOrientation = p.windowOrientation?.rawValue
+        distanceFromWindow = p.distanceFromWindow.rawValue
+        growLight = p.growLight
     }
 }
 
