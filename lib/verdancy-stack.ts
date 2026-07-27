@@ -395,6 +395,10 @@ export class VerdancyStack extends cdk.Stack {
         APP_CLIENT_ID: client.userPoolClientId,
         // Native Sign in with Apple sets the token audience to the app bundle id.
         APPLE_AUDIENCE: 'com.verdancy.app',
+        // Google OAuth iOS client id — the audience of the Google ID token. Public
+        // (ships in the app), not a secret.
+        GOOGLE_CLIENT_ID:
+          '463079233513-jr0tij8ftp393jnccot9brr7equs9skj.apps.googleusercontent.com',
       },
     });
     // Least privilege: only the admin actions needed to find-or-create the user and
@@ -521,6 +525,12 @@ export class VerdancyStack extends cdk.Stack {
     });
     httpApi.addRoutes({
       path: '/auth/apple',
+      methods: [HttpMethod.POST],
+      integration: authIntegration,
+      authorizer: new HttpNoneAuthorizer(),
+    });
+    httpApi.addRoutes({
+      path: '/auth/google',
       methods: [HttpMethod.POST],
       integration: authIntegration,
       authorizer: new HttpNoneAuthorizer(),

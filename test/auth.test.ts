@@ -8,15 +8,18 @@ import {
 } from '@aws-sdk/client-cognito-identity-provider';
 import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from 'aws-lambda';
 
-// Apple verification is exercised on its own in apple.test.ts; here we control its
-// result to test the handler's orchestration.
+// Provider verification is exercised on its own in apple.test.ts / google.test.ts;
+// here we control the result to test the handler's orchestration.
 jest.mock('../src/lib/apple', () => ({ verifyAppleIdentityToken: jest.fn() }));
+jest.mock('../src/lib/google', () => ({ verifyGoogleIdToken: jest.fn() }));
 import { verifyAppleIdentityToken } from '../src/lib/apple';
+import { verifyGoogleIdToken } from '../src/lib/google';
 import { ApiError } from '../src/lib/errors';
 import { handler } from '../src/handlers/auth';
 
 const cognitoMock = mockClient(CognitoIdentityProviderClient);
 const verifyMock = verifyAppleIdentityToken as jest.MockedFunction<typeof verifyAppleIdentityToken>;
+const verifyGoogleMock = verifyGoogleIdToken as jest.MockedFunction<typeof verifyGoogleIdToken>;
 
 function userNotFound(): Error {
   const e = new Error('no such user');
@@ -24,23 +27,25 @@ function userNotFound(): Error {
   return e;
 }
 
-function event(body?: unknown): APIGatewayProxyEventV2 {
+function event(body?: unknown, path = '/auth/apple'): APIGatewayProxyEventV2 {
   return {
+    rawPath: path,
     headers: {},
     body: body === undefined ? undefined : JSON.stringify(body),
     isBase64Encoded: false,
-    requestContext: { http: { method: 'POST', path: '/auth/apple' } },
+    requestContext: { http: { method: 'POST', path } },
   } as unknown as APIGatewayProxyEventV2;
 }
 
-async function call(body?: unknown) {
-  return (await handler(event(body))) as APIGatewayProxyStructuredResultV2;
+async function call(body?: unknown, path = '/auth/apple') {
+  return (await handler(event(body, path))) as APIGatewayProxyStructuredResultV2;
 }
 
 beforeAll(() => {
   process.env.USER_POOL_ID = 'us-west-1_test';
   process.env.APP_CLIENT_ID = 'client-abc';
   process.env.APPLE_AUDIENCE = 'com.verdancy.app';
+  process.env.GOOGLE_CLIENT_ID = '463079233513-abc.apps.googleusercontent.com';
 });
 
 beforeEach(() => {
@@ -51,6 +56,12 @@ beforeEach(() => {
     email: 'user@example.com',
     emailVerified: true,
     isPrivateEmail: false,
+  });
+  verifyGoogleMock.mockReset();
+  verifyGoogleMock.mockResolvedValue({
+    sub: 'google-sub-1',
+    email: 'user@gmail.com',
+    emailVerified: true,
   });
   // Default: the user already exists. The "new user" block overrides this.
   cognitoMock.on(AdminGetUserCommand).resolves({
@@ -176,5 +187,32 @@ describe('returning user', () => {
     expect(cognitoMock.commandCalls(AdminCreateUserCommand)).toHaveLength(0);
     // Tokens are still minted (password set + admin auth) for the existing user.
     expect(cognitoMock.commandCalls(AdminInitiateAuthCommand)).toHaveLength(1);
+  });
+});
+
+describe('POST /auth/google', () => {
+  beforeEach(() => {
+    cognitoMock.on(AdminGetUserCommand).rejects(userNotFound());
+    cognitoMock.on(AdminCreateUserCommand).resolves({
+      User: { Attributes: [{ Name: 'sub', Value: 'cognito-sub-2' }] },
+    });
+  });
+
+  test('verifies with Google (not Apple) and derives a google_ username', async () => {
+    const res = await call(goodBody, '/auth/google');
+    expect(res.statusCode).toBe(200);
+    expect(verifyGoogleMock).toHaveBeenCalledWith('apple.jwt.here', {
+      audience: '463079233513-abc.apps.googleusercontent.com',
+      expectedNonce: 'raw-nonce',
+    });
+    expect(verifyMock).not.toHaveBeenCalled();
+    const create = cognitoMock.commandCalls(AdminCreateUserCommand)[0].args[0].input;
+    expect(create.Username).toBe('google_googlesub1@no-reply.verdancy.app');
+  });
+
+  test('401 when the Google token is invalid', async () => {
+    verifyGoogleMock.mockRejectedValue(new ApiError(401, 'Bad token signature'));
+    const res = await call(goodBody, '/auth/google');
+    expect(res.statusCode).toBe(401);
   });
 });

@@ -23,5 +23,10 @@ final class MockAuthService: AuthService {
         signedIn = true
     }
 
+    func signInWithGoogle() async throws {
+        try? await Task.sleep(for: .milliseconds(400))
+        signedIn = true
+    }
+
     func signOut() async { signedIn = false }
 }

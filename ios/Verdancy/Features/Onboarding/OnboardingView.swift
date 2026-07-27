@@ -61,7 +61,12 @@ struct OnboardingView: View {
                 .indexViewStyle(.page(backgroundDisplayMode: .always))
 
                 VStack(spacing: Theme.Space.m) {
-                    AppleSignInButton(isWorking: isWorking) { await signIn() }
+                    AppleSignInButton(isWorking: isWorking) {
+                        await signIn("apple") { try await app.signInWithApple() }
+                    }
+                    GoogleSignInButton(isWorking: isWorking) {
+                        await signIn("google") { try await app.signInWithGoogle() }
+                    }
                     if let error {
                         Text(error).font(.footnote).foregroundStyle(Theme.Color.danger)
                     }
@@ -106,16 +111,16 @@ struct OnboardingView: View {
         Haptics.success()
     }
 
-    private func signIn() async {
+    private func signIn(_ method: String, _ action: @escaping () async throws -> Void) async {
         isWorking = true
         error = nil
-        Analytics.log("sign_in_started")
+        Analytics.log("sign_in_started", ["method": method])
         do {
-            try await app.signInWithApple()
-            Analytics.log("sign_in_succeeded")
+            try await action()
+            Analytics.log("sign_in_succeeded", ["method": method])
         } catch {
             self.error = "Sign in failed. Please try again."
-            Analytics.log("sign_in_failed")
+            Analytics.log("sign_in_failed", ["method": method])
         }
         isWorking = false
     }
@@ -176,6 +181,37 @@ struct AppleSignInButton: View {
             .foregroundStyle(Color.white)
             .background(Color.black)
             .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.button, style: .continuous))
+        }
+        .disabled(isWorking)
+    }
+}
+
+/// "Continue with Google" trigger. Runs OAuth + PKCE in an in-app browser
+/// (`GoogleSignInController`). Neutral styling to contrast Apple's black button;
+/// swap in the official Google logo mark before store submission for brand
+/// compliance.
+struct GoogleSignInButton: View {
+    let isWorking: Bool
+    let action: () async -> Void
+
+    var body: some View {
+        Button {
+            Task { await action() }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "g.circle.fill")
+                Text("Continue with Google").fontWeight(.medium)
+            }
+            .font(.headline)
+            .frame(maxWidth: .infinity)
+            .frame(height: 52)
+            .foregroundStyle(Theme.Color.textPrimary)
+            .background(Theme.Color.surface)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.button, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.Radius.button, style: .continuous)
+                    .strokeBorder(Theme.Color.separator, lineWidth: 1)
+            )
         }
         .disabled(isWorking)
     }

@@ -14,6 +14,14 @@ enum AppConfig {
     static let cognitoUserPoolId = "us-west-1_3nSrmRffE"
     static let cognitoAppClientId = "6jsmcp3h5g51brqas321f94u3"
 
+    /// Google OAuth iOS client id (public). Sign-in exchanges the resulting Google
+    /// ID token at `/auth/google`. The reversed-client-id is the OAuth redirect
+    /// scheme Google requires for the native/ASWebAuthenticationSession flow.
+    static let googleClientID =
+        "463079233513-jr0tij8ftp393jnccot9brr7equs9skj.apps.googleusercontent.com"
+    static let googleReversedClientID =
+        "com.googleusercontent.apps.463079233513-jr0tij8ftp393jnccot9brr7equs9skj"
+
     /// RevenueCat public SDK key (App Store).
     static let revenueCatAPIKey = "appl_UotmnRxURcklrwrZorlKJcEoKAQ"
 

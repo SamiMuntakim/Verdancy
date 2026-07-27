@@ -11,5 +11,6 @@ protocol AuthService: AnyObject {
     /// The Cognito `sub` of the signed-in user, if any.
     func userId() async -> String?
     func signInWithApple() async throws
+    func signInWithGoogle() async throws
     func signOut() async
 }

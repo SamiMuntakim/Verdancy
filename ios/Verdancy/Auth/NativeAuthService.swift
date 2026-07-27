@@ -1,17 +1,20 @@
 import Foundation
 
-/// Native Sign in with Apple → real Cognito user-pool tokens, with **no Amplify and
-/// no web redirect**. `signInWithApple()` presents the system sheet, posts the
-/// resulting identity token to `POST /auth/apple`, and stores the returned Cognito
-/// session in the Keychain. `idToken` serves the cached token and refreshes it
-/// against Cognito when it's near expiry (coalescing concurrent refreshes).
+/// Native federated sign-in → real Cognito user-pool tokens, with **no Amplify and
+/// no SDKs**. Apple uses the native `ASAuthorizationController` system sheet; Google
+/// uses OAuth + PKCE in an `ASWebAuthenticationSession`. Either way the resulting
+/// provider token is posted to the backend (`/auth/apple` or `/auth/google`), which
+/// mints a Cognito session we store in the Keychain. `idToken` serves the cached
+/// token and refreshes it against Cognito near expiry (coalescing concurrent
+/// refreshes).
 ///
 /// Main-actor isolated so the token/refresh state can't race; the network awaits
 /// inside still run off the main thread.
 @MainActor
-final class NativeAppleAuthService: AuthService {
+final class NativeAuthService: AuthService {
     private var tokens: AuthTokens?
-    private var signInController: AppleSignInController?
+    private var appleController: AppleSignInController?
+    private var googleController: GoogleSignInController?
     private var refreshTask: Task<AuthTokens, Error>?
 
     /// Refresh this many seconds before actual expiry to avoid racing the clock.
@@ -39,21 +42,39 @@ final class NativeAppleAuthService: AuthService {
 
     func signInWithApple() async throws {
         let controller = AppleSignInController()
-        signInController = controller
-        defer { signInController = nil }
+        appleController = controller
+        defer { appleController = nil }
 
         let credential = try await controller.signIn()
-        let session = try await CognitoAuthAPI.exchangeApple(
+        try await exchangeAndStore(
+            path: "auth/apple",
             identityToken: credential.identityToken,
             nonce: credential.rawNonce)
-        tokens = session
-        TokenStore.save(session)
+    }
+
+    func signInWithGoogle() async throws {
+        let controller = GoogleSignInController()
+        googleController = controller
+        defer { googleController = nil }
+
+        let credential = try await controller.signIn()
+        try await exchangeAndStore(
+            path: "auth/google",
+            identityToken: credential.identityToken,
+            nonce: credential.rawNonce)
     }
 
     func signOut() async {
         tokens = nil
         refreshTask = nil
         TokenStore.clear()
+    }
+
+    private func exchangeAndStore(path: String, identityToken: String, nonce: String) async throws {
+        let session = try await CognitoAuthAPI.exchange(
+            path: path, identityToken: identityToken, nonce: nonce)
+        tokens = session
+        TokenStore.save(session)
     }
 
     /// Refresh the session, coalescing concurrent callers onto one network call.

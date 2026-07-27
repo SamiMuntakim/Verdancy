@@ -130,6 +130,16 @@ final class AppModel {
 
     func signInWithApple() async throws {
         try await auth.signInWithApple()
+        await completeSignIn()
+    }
+
+    func signInWithGoogle() async throws {
+        try await auth.signInWithGoogle()
+        await completeSignIn()
+    }
+
+    /// Shared post-sign-in setup, whichever provider was used.
+    private func completeSignIn() async {
         try? await api.createUser() // idempotent profile upsert (iOS-PRD §8.1)
         if let sub = await auth.userId() { await entitlement.login(userId: sub) }
         phase = .signedIn

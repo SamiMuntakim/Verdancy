@@ -5,7 +5,7 @@ struct VerdancyApp: App {
     @State private var app: AppModel
 
     init() {
-        let auth: AuthService = AppConfig.useMockAuth ? MockAuthService() : NativeAppleAuthService()
+        let auth: AuthService = AppConfig.useMockAuth ? MockAuthService() : NativeAuthService()
         _app = State(initialValue: AppModel(auth: auth))
     }
 

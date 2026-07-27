@@ -5,11 +5,13 @@ import Foundation
 /// token for Cognito tokens via our backend, and refreshing tokens directly
 /// against Cognito's IDP endpoint.
 enum CognitoAuthAPI {
-    /// Exchange a native Sign in with Apple identity token for Cognito user-pool
-    /// tokens via `POST {apiBaseURL}/auth/apple` (the backend verifies the token,
-    /// find-or-creates the user, and mints the tokens).
-    static func exchangeApple(identityToken: String, nonce: String) async throws -> AuthTokens {
-        let url = AppConfig.apiBaseURL.appendingPathComponent("auth/apple")
+    /// Exchange a native provider identity token for Cognito user-pool tokens via
+    /// `POST {apiBaseURL}/{path}` (e.g. `auth/apple`, `auth/google`). The backend
+    /// verifies the token, find-or-creates the user, and mints the tokens.
+    static func exchange(path: String, identityToken: String, nonce: String) async throws
+        -> AuthTokens
+    {
+        let url = AppConfig.apiBaseURL.appendingPathComponent(path)
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
