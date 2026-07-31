@@ -138,12 +138,8 @@ describe('Operational hardening (PRD 3.8)', () => {
     t.hasResourceProperties('AWS::Logs::LogGroup', { RetentionInDays: 30 });
   });
 
-  test('error-rate alarms exist for the Lambdas', () => {
-    t.resourceCountIs('AWS::CloudWatch::Alarm', 4);
-    t.hasResourceProperties('AWS::CloudWatch::Alarm', {
-      Namespace: 'AWS/Lambda',
-      MetricName: 'Errors',
-    });
+  test('no CloudWatch alarms (removed to minimize infra; bounded log retention remains)', () => {
+    t.resourceCountIs('AWS::CloudWatch::Alarm', 0);
   });
 });
 

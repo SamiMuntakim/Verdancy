@@ -4,6 +4,9 @@ import SwiftUI
 /// buddy. Wholesome framing — "look what's growing for you," never punitive.
 struct BloomCelebrationView: View {
     @Environment(AppModel.self) private var app
+    /// The plant whose bud blooms — its resolved remote sprite if generated, else
+    /// the bundled sprite for its species (§8 payoff). `nil` → generic fallback.
+    let plant: Plant?
     let onDone: () -> Void
 
     @State private var bloomed = false
@@ -26,13 +29,17 @@ struct BloomCelebrationView: View {
                         .fill(Theme.Color.leaf.opacity(0.15))
                         .frame(width: 220, height: 220)
                         .scaleEffect(bloomed ? 1.0 : 0.5)
-                    Image(bloomed ? BudSprites.generic : BudSprites.dormant)
-                        .resizable()
-                        .interpolation(.none) // crisp pixel art
-                        .scaledToFit()
-                        .frame(width: 160, height: 160)
-                        .scaleEffect(bloomed ? 1.0 : 0.7)
-                        .rotationEffect(.degrees(bloomed ? 0 : -10))
+                    Group {
+                        if bloomed {
+                            bloomedBud
+                        } else {
+                            Image(BudSprites.dormant)
+                                .resizable().interpolation(.none).scaledToFit()
+                        }
+                    }
+                    .frame(width: 160, height: 160)
+                    .scaleEffect(bloomed ? 1.0 : 0.7)
+                    .rotationEffect(.degrees(bloomed ? 0 : -10))
                 }
 
                 VStack(spacing: Theme.Space.s) {
@@ -70,6 +77,25 @@ struct BloomCelebrationView: View {
             }
             withAnimation(.easeIn.delay(1.1)) { showCTA = true }
         }
+    }
+
+    /// Blooms into the user's actual plant bud: the resolved remote sprite when the
+    /// backend has generated it, else the bundled sprite for its species.
+    @ViewBuilder private var bloomedBud: some View {
+        if let urlString = plant?.buddy?.spriteUrl, let url = URL(string: urlString) {
+            AsyncImage(url: url) { image in
+                image.resizable().interpolation(.none).scaledToFit()
+            } placeholder: {
+                bundledBloom
+            }
+        } else {
+            bundledBloom
+        }
+    }
+
+    private var bundledBloom: some View {
+        Image(plant.map { BudSprites.bloomAsset(for: $0.species) } ?? BudSprites.generic)
+            .resizable().interpolation(.none).scaledToFit()
     }
 }
 
@@ -128,6 +154,6 @@ struct ConfettiBurst: View {
 }
 
 #Preview {
-    BloomCelebrationView(onDone: {})
+    BloomCelebrationView(plant: .sample, onDone: {})
         .environment(AppModel(auth: MockAuthService(startSignedIn: true)))
 }

@@ -25,19 +25,15 @@ struct PaywallView: View {
                             )
                         Text("Keep your plants alive —\nand plant 10 real trees.")
                             .font(.title2.weight(.bold)).multilineTextAlignment(.center)
+                        Text("Free gives you \(AppConfig.freeDailyScanCount) plant IDs a day. Premium unlocks the whole thing.")
+                            .font(.subheadline)
+                            .multilineTextAlignment(.center)
+                            .foregroundStyle(Theme.Color.textSecondary)
+                            .padding(.horizontal, Theme.Space.l)
                     }
                     .padding(.top, Theme.Space.l)
 
-                    VStack(alignment: .leading, spacing: Theme.Space.m) {
-                        FeatureRow(icon: "camera.viewfinder", text: "Unlimited plant identification")
-                        FeatureRow(icon: "stethoscope", text: "Instant diagnoses for ailing plants")
-                        FeatureRow(icon: "bell.badge.fill", text: "Care reminders and streaks")
-                        FeatureRow(icon: "sparkles", text: "Your buddies bloom for every plant")
-                        FeatureRow(icon: "tree.fill", text: "10 real trees planted — plus more as you grow")
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(Theme.Space.l)
-                    .card()
+                    PlanComparison()
 
                     SocialProofCard()
 
@@ -145,22 +141,104 @@ struct SocialProofCard: View {
     }
 }
 
-struct FeatureRow: View {
-    let icon: String
-    let text: String
+/// The conversion centerpiece (iOS-PRD §7/§8): a stark Free-vs-Premium table. Free
+/// is honestly bare — 2 identifications a day and nothing else — so the premium
+/// column, which carries every real feature *including the real trees*, does the
+/// selling. Numbers come from `AppConfig` so client copy tracks the server gate.
+struct PlanComparison: View {
+    /// A capability row. `free` is the free-tier value (nil → not included, shown as
+    /// a muted dash); premium is always included (`premiumValue` nil → a check).
+    private struct Row {
+        let icon: String
+        let label: String
+        let free: String?
+        let premiumValue: String?
+    }
+
+    private var rows: [Row] {
+        [
+            Row(icon: "camera.viewfinder", label: "Plant identification",
+                free: "\(AppConfig.freeDailyScanCount)/day", premiumValue: "Unlimited"),
+            Row(icon: "list.bullet.clipboard.fill", label: "Personalized care plans",
+                free: nil, premiumValue: nil),
+            Row(icon: "bell.badge.fill", label: "Watering & care reminders",
+                free: nil, premiumValue: nil),
+            Row(icon: "stethoscope", label: "Diagnose sick plants",
+                free: nil, premiumValue: nil),
+            Row(icon: "sparkles", label: "Blooming plant buddies",
+                free: nil, premiumValue: nil),
+            Row(icon: "flame.fill", label: "Care streaks & stats",
+                free: nil, premiumValue: nil),
+            Row(icon: "tree.fill", label: "Real trees planted",
+                free: nil, premiumValue: "10 +"),
+        ]
+    }
 
     var body: some View {
+        VStack(spacing: 0) {
+            // Column headers.
+            HStack(spacing: Theme.Space.m) {
+                Text("Everything you get")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Theme.Color.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text("Free")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Theme.Color.textSecondary)
+                    .frame(width: 62)
+                Text("Premium")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(Theme.Color.leaf)
+                    .frame(width: 72)
+            }
+            .padding(.bottom, Theme.Space.s)
+
+            ForEach(rows.indices, id: \.self) { i in
+                if i > 0 { Divider().overlay(Theme.Color.separator) }
+                rowView(rows[i])
+            }
+        }
+        .padding(Theme.Space.l)
+        .card()
+    }
+
+    private func rowView(_ row: Row) -> some View {
         HStack(spacing: Theme.Space.m) {
-            Image(systemName: icon)
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(Theme.Color.leaf)
-                .frame(width: 28, height: 28)
-                .background(Theme.Color.leaf.opacity(0.12), in: Circle())
-            Text(text).font(.subheadline.weight(.medium))
-            Spacer(minLength: 0)
-            Image(systemName: "checkmark")
+            HStack(spacing: Theme.Space.s) {
+                Image(systemName: row.icon)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Theme.Color.leaf)
+                    .frame(width: 24, height: 24)
+                    .background(Theme.Color.leaf.opacity(0.12), in: Circle())
+                Text(row.label).font(.subheadline.weight(.medium))
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            cell(freeText: row.free, included: row.free != nil, emphasized: false)
+                .frame(width: 62)
+            cell(freeText: row.premiumValue, included: true, emphasized: true)
+                .frame(width: 72)
+        }
+        .padding(.vertical, Theme.Space.m)
+    }
+
+    /// A value cell: shows the text if present, a check when included without a
+    /// value, or a muted dash when the tier doesn't include it.
+    @ViewBuilder
+    private func cell(freeText: String?, included: Bool, emphasized: Bool) -> some View {
+        if let freeText {
+            Text(freeText)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(emphasized ? Theme.Color.leaf : Theme.Color.textPrimary)
+                .multilineTextAlignment(.center)
+        } else if included {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.subheadline)
+                .foregroundStyle(emphasized ? Theme.Color.leaf : Theme.Color.textPrimary)
+        } else {
+            Image(systemName: "minus")
                 .font(.caption.weight(.bold))
-                .foregroundStyle(Theme.Color.leaf)
+                .foregroundStyle(Theme.Color.separator)
         }
     }
 }

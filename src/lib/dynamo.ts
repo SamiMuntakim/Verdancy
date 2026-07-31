@@ -481,12 +481,15 @@ export async function claimBuddyGeneration(
           claimed_at: Math.floor(Date.now() / 1000),
         },
         ConditionExpression:
-          'attribute_not_exists(SK) OR #s = :failed OR (#s = :pending AND claimed_at < :stale)',
+          'attribute_not_exists(SK) OR #s = :failed OR (#s = :pending AND claimed_at < :stale) ' +
+          'OR (#s = :ready AND (attribute_not_exists(style_version) OR style_version <> :sv))',
         ExpressionAttributeNames: { '#s': 'status' },
         ExpressionAttributeValues: {
           ':failed': 'failed',
           ':pending': 'pending',
           ':stale': staleBeforeEpoch,
+          ':ready': 'ready',
+          ':sv': styleVersion,
         },
       }),
     );

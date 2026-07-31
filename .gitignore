@@ -5,11 +5,15 @@ node_modules/
 cdk.out/
 cdk.context.json
 *.d.ts
+# hand-written ambient declarations are source, not compiled output
+!src/types/*.d.ts
 # compiled JS (we run TS via ts-node; keep source-only)
 bin/**/*.js
 lib/**/*.js
 src/**/*.js
 test/**/*.js
+# hand-written jest helpers (e.g. asset stubs) are source, not compiled output
+!test/helpers/*.js
 dist/
 
 # Secrets / local env — never commit

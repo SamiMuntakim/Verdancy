@@ -15,7 +15,7 @@ This PRD covers the **backend**. The iOS (Swift) app is summarized in Section 6 
 * **AWS owns everything user-facing and persistent:** identity, the AI proxy, the **structured user data** (garden, care schedule, growth-timeline entries, tree tally), and the **user image blobs**. One queryable, server-side source of truth you can support, restore, and (later) port to other platforms.
 * **Images live in a private S3 bucket, accessed via presigned URLs, and are cached aggressively on-device.** The app uploads each image with a short-lived presigned `PUT` and downloads with a short-lived presigned `GET`; **image bytes never pass through Lambda.** Each image is downloaded roughly once per device and then served from the local cache, which is also the offline story. A structured record references its image by `image_ref` (the S3 object key).
 * **Why not CloudKit:** CloudKit is free but (a) requires the user to be signed into iCloud and (b) permanently locks the image layer to Apple platforms. S3 keeps the door open for a future Android/web client and removes the iCloud dependency. The cost is small and controlled (see below).
-* **Shared pixel-art sprites** (post-MVP) live in a **separate** S3 bucket + CloudFront, because a sprite is shared across all users of a species.
+* **Shared Plant Buddy sprites** live in a **separate** S3 bucket + CloudFront, because a sprite is shared across all users of a species (one generated bud per species). Backend built — see Appendix A.
 * The UX (Today dashboard, reminders, paywall) computes **on-device**.
 
 **Cost:** Cognito, Lambda, API Gateway HTTP API, and DynamoDB are within free tier at MVP scale. User images are the only new variable: at ≤1MP (~250KB) each, 10k users × ~30 images ≈ 75 GB ≈ **~$1.70/month** storage; egress stays low because the app caches each image locally after one download and bytes bypass Lambda via presigned URLs. A lifecycle policy tiers cold objects to cheaper storage. The other variable cost is Gemini API usage, capped by a per-user quota (Section 5).
@@ -30,7 +30,7 @@ This PRD covers the **backend**. The iOS (Swift) app is summarized in Section 6 
 | --- | --- |
 | Garden, care schedule, growth-timeline entries, profile, tree tally, **entitlement flag** | **AWS DynamoDB** (source of truth, synced via API) |
 | Plant photos & growth-timeline photo bytes | **AWS S3** (private bucket, presigned URLs, referenced by `image_ref`); **cached on-device** |
-| Shared pixel-art sprites (post-MVP) | **AWS S3 + CloudFront** (separate bucket) |
+| Shared Plant Buddy sprites (one per species) | **AWS S3 + CloudFront** (separate bucket) |
 | Today dashboard, reminders, weather/season greeting | **On-device** (computed from data fetched from AWS) |
 | Paywall UX + purchase | **RevenueCat SDK (on-device)** |
 | **Server-side entitlement truth** | **AWS DynamoDB**, updated by a **RevenueCat webhook** (Section 4.6) |
@@ -48,10 +48,10 @@ This PRD covers the **backend**. The iOS (Swift) app is summarized in Section 6 
 4. **Amazon DynamoDB** — single table `VerdancyData`, on-demand, **no GSIs**. Source of truth for structured data.
 5. **Amazon S3** — one **private** bucket `verdancy-user-images` (Block Public Access ON), presigned-URL access only, lifecycle policy to Intelligent-Tiering / IA for cold objects.
 6. **Secrets Manager** — Gemini API key, RevenueCat webhook secret, Google/Apple credentials.
-7. **(Post-MVP) S3 + CloudFront** — shared sprite store (separate bucket); not built for MVP.
-8. **CloudWatch alarms** (cheap insurance) — Lambda error rate, and a billing/usage alarm to catch runaway Gemini spend.
+7. **S3 + CloudFront** — shared **Plant Buddy** sprite store: a **separate** bucket from user images (shared/CDN-public vs. private per-user), served read-only via CloudFront, plus a dedicated **buddy Lambda** (`POST /buddy`). **Built** (Appendix A); pending a live deploy + smoke test.
+8. **CloudWatch logs only** — Lambda log groups with bounded (1-month) retention. The 4 error-rate/billing **alarms were removed** to minimize infra/cost; the hard cost cap on AI spend is the per-user daily quota enforced in the handler.
 
-No VPC. No push infrastructure (notifications are iOS-local).
+No VPC. No push infrastructure (notifications are iOS-local). No CloudWatch alarms.
 
 ---
 
@@ -67,7 +67,7 @@ PK = `PK` (String), SK = `SK` (String), Billing = PAY_PER_REQUEST. **No GSIs.** 
 | `USER#<sub>` | `QUOTA#<YYYY-MM-DD>` | `count` (int), `expires_at` (epoch TTL ≈ 48h later) — **daily cost backstop; auto-deletes** |
 | `USER#<sub>` | `PLANT#<plantId>` | `common_name`, `species` (normalized), `taxonomy` (`{family, genus, species, cultivar?}`), `nickname`, `image_ref` (**S3 object key**), `toxicity`, `confidence` (`High`/`Medium`/`Low`), `care` (map: water/fertilize/prune → `{cadence_days, last_done_at}` — cadences empty until the care plan runs), `care_plan` (tailored water/light/nutrients copy), `personalization` (the environment inputs), `buddy_variant` (optional), `created_at` |
 | `USER#<sub>` | `PHOTO#<plantId>#<ts>` | `image_ref` (**S3 key**), `taken_at`, `caption` |
-| `SPECIES#<normalized-species>` | `BUDDY` | `status`, `sprite_url`, `style_version`, `created_at` *(post-MVP)* |
+| `SPECIES#<normalized-species>` | `BUDDY` | `status` (`pending`/`ready`/`failed`), `sprite_url`, `style_version`, timestamps — one shared, generate-once bud per species (Appendix A) |
 
 Access patterns (all direct, no index): profile (`USER#<sub>`/`METADATA`); today's quota (`USER#<sub>`/`QUOTA#<today>`); garden (`USER#<sub>` + `SK begins_with "PLANT#"`); a plant's photos (`SK begins_with "PHOTO#<plantId>#"`); species buddy (`SPECIES#<species>`/`BUDDY`).
 
@@ -94,11 +94,12 @@ Access patterns (all direct, no index): profile (`USER#<sub>`/`METADATA`); today
 | `POST /diagnose` | **entitlement + quota** | Same pattern → triage-plan JSON. |
 | `POST /plants` | — | Save plant record (incl. `image_ref` from `POST /uploads`) + `taxonomy`; the `care` map starts **empty** (filled by the care-plan step). |
 | `POST /plants/{plantId}/care-plan` | **subscriber-only + quota** | Body: environment inputs (pot size, light, drainage, …). **Subscriber-only:** a non-subscriber gets `402` **before any Gemini call** (no credits spent). Proxy → Gemini (text-only) → tailored water/light/nutrients plan; persists the cadences + copy onto the plant. |
-| `GET /plants` | — | List garden; each item includes a fresh **presigned download URL** for its `image_ref` (+ resolved buddy fields, post-MVP). |
+| `GET /plants` | — | List garden; each item includes a fresh **presigned download URL** for its `image_ref` **+ the resolved per-species buddy** (`status`, `sprite_url`, `style_version`). |
 | `POST /plants/{plantId}/care` | — | Body `{type:"water"\|"fertilize"\|"prune"}` → update `care.<type>.last_done_at`. |
 | `DELETE /plants/{plantId}` | — | Remove plant + its photo entries **+ delete the corresponding S3 objects**. |
 | `POST /plants/{plantId}/photos` | — | Add growth-timeline entry (`image_ref`, caption). *(deferrable)* |
 | `GET /plants/{plantId}/photos` | — | List timeline entries, each with a presigned download URL. *(deferrable)* |
+| `POST /buddy` | **owns the species** | Body `{species}` → the shared Plant Buddy sprite. Cache hit → `200` (CloudFront URL); miss → caller atomically claims generation (Gemini image → chroma-key → downscale → sprite bucket), records `SPECIES#/BUDDY` → `201`; a concurrent claim → `202 pending`. Bounded to species the caller actually grows. Own (heavier) Lambda. (Appendix A.) |
 | `POST /milestones` | — | `{milestoneId}` → idempotent +1 tree (see 4.7). |
 | `GET /me/trees` | — | `{ trees_pledged, milestones }` for display. |
 | `POST /webhooks/revenuecat` | **shared-secret (no JWT)** | RevenueCat → updates `entitlement_active` / `entitlement_expires_at` (see 4.6). |
@@ -107,7 +108,7 @@ Access patterns (all direct, no index): profile (`USER#<sub>`/`METADATA`); today
 
 ### 4.5 Gemini calls (structured output) — tuned for accuracy & plant safety
 
-SDK: **`@google/genai`** (the current GA `GoogleGenAI` client; the legacy `@google/generative-ai` is deprecated). Models via env: `IDENTIFY_MODEL_ID` and `DIAGNOSE_MODEL_ID`, both default **`gemini-3.5-flash`** (highest-accuracy Flash tier; do **not** downgrade to a Lite tier — care accuracy is a retention lever). Use `config: { responseMimeType: "application/json", responseSchema }`; wrap `JSON.parse` in try/catch.
+SDK: **`@google/genai`** (the current GA `GoogleGenAI` client; the legacy `@google/generative-ai` is deprecated). Models via env: `IDENTIFY_MODEL_ID` and `DIAGNOSE_MODEL_ID`, both default **`gemini-3.5-flash`** (highest-accuracy Flash tier; do **not** downgrade to a Lite tier — care accuracy is a retention lever). Use `config: { responseMimeType: "application/json", responseSchema }`; wrap `JSON.parse` in try/catch. The **Plant Buddy image model** is separate: `BUDDY_MODEL_ID`, default **`gemini-3.1-flash-image`** (full Nano Banana 2) — image output, pinned to a stable id (Appendix A).
 
 * **Identify** (identity only — all required): `species`, `common_name`, `toxicity` (`High|Medium|Low|None`), `taxonomy` (`{family, genus, species, cultivar?}`, nullable), **`confidence`** (`High|Medium|Low`). **No care schedule** — that is deferred to the environment-tailored care plan below.
 * **Diagnose** (all required): `issue`, `likely_cause`, `severity` (`Critical|Moderate|Minor|Healthy`), `steps` (ordered array), **`confidence`** (`High|Medium|Low`).
@@ -187,12 +188,13 @@ The 4-tab app (**Today** / **Smart Scan** / **My Oasis** / **Settings**); fetchi
 
 ---
 
-## Appendix A — Plant Buddy (Post-MVP)
+## Appendix A — Plant Buddy
 
-> Build after MVP. A pixel-art "bud" companion per plant, revealed with a blossom animation; its expression reflects care state (derived on-device).
+> A pixel-art "bud" companion per plant, revealed with a blossom animation; its expression reflects care state (derived on-device). **The backend generation pipeline is built** (this section reflects the as-built design). **Remaining:** a live deploy + one-species smoke test, and wiring the iOS save flow to call `POST /buddy` so generated buds actually populate.
 
-* **Per-species, not per-plant/per-user** — every monstera owner gets the same monstera bud (cohesive collection, near-zero marginal cost).
-* **Bundle the curated common library in the app** — pre-generate and hand-review the top ~100–200 houseplants and ship the sprites inside the app binary. Most users get their bud instantly, offline, with no backend call.
-* **Rare-species tail → separate S3 bucket + CloudFront (shared).** When a saved species isn't bundled, the app requests generation via a proxy route (same key-protection pattern as identify); the sprite is generated once, post-processed, written to the **sprite** bucket, served via **CloudFront**, and recorded on the `SPECIES#<species>/BUDDY` item. Any later user with that species gets the cached URL. Use a **separate** bucket from user images (shared/public-read-via-CDN vs. private per-user). Carry `style_version` to allow a full re-cache if the art is revamped.
-* **Generation:** prompt = fixed style prefix + species clause + your **own** style-bible reference sprites (never a third-party artist's work), on a flat chroma background; post-process (chroma-key to transparent → nearest-neighbor downscale → quantize to the locked palette).
+* **Per-species, not per-plant/per-user** — every monstera owner gets the same monstera bud (cohesive collection, near-zero marginal cost). Cache key = the **normalized species**; the plant's `common_name` is fed to the prompt for better trait recognition. Cost is bounded to one generation per distinct species, ever.
+* **Generated once per species, shared via CloudFront.** `POST /buddy {species}` (bounded to species the caller actually grows): cache hit → the stored CloudFront URL; miss → one caller **atomically claims** generation on the `SPECIES#/BUDDY` item, generates, post-processes, uploads to the **sprite** bucket, and finalizes; concurrent callers get `202 pending`. `GET /plants` resolves each plant's buddy inline. A **separate** bucket from user images (shared/CDN-public vs. private per-user); `style_version` lives in the S3 key so the art can be fully re-cached without invalidations.
+* **Generation (as built):** the prompt is anchored to a **single-bud** style-reference image (`src/assets/buddy-style-reference.png` — the operator's own licensed art, never a third party's) passed to the model as an **input image part**, plus a templated clause naming the plant. The prompt forces a **round, frame-filling chibi** mascot on a flat magenta (`#FF00FF`) field and forbids a realistic/tall plant, and tells the model to copy the reference's *style, not layout* (a multi-bud sheet made it draw a whole row). Model: `BUDDY_MODEL_ID`, default `gemini-3.1-flash-image` (full Nano Banana 2 — the Lite tier drew literal plants). Post-process: **chroma-key** the magenta to transparent → **de-fringe** residual magenta → **crop to the subject** → **fit centered** at 64px preserving aspect → encode PNG. **No palette snap** — the reference art *is* the house style. `STYLE_VERSION = 3`; cache hits require a matching style version, so a bump forces a full re-generate.
+* **The buddy sprite is the one place Lambda handles image bytes end-to-end** (generated image → post-process → write the small PNG to the shared sprite bucket). This is a deliberate, narrow exception to "image bytes never pass through Lambda" (that rule is about *user photos*); a bud is a tiny, shared, non-user asset.
+* **iOS:** the app bundles a small starter set (a dormant closed bud + a few silhouettes + a generic fallback) and the bloom animation — all local. On plant-save it calls `POST /buddy` (polls `202`, silent fallback to the bundled sprite on error) and applies the shared sprite to **every** plant of that species; `BudView` prefers the resolved remote `sprite_url` when present. The bloom reveal opens into the plant's **own** bud (not a generic sprite).
 * **Moods, growth stages, reflections, backgrounds, share cards:** rendered **on-device** over the one transparent base sprite — no regeneration.

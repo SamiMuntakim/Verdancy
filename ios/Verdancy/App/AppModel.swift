@@ -14,6 +14,11 @@ final class AppModel {
 
     var phase: Phase = .launching
     var selectedTab: Tab = .today
+    /// A brand-new account is in the first-run flow (iOS-PRD §8.2): sign up →
+    /// guided first scan → seedling reveal → paywall. While true, RootView shows the
+    /// `FirstRunView` coordinator instead of the tab bar. Cleared once they finish
+    /// (subscribe & bloom) or choose "maybe later".
+    var firstRunActive = false
     /// Fires the one-time bloom reveal after a successful subscribe (iOS-PRD §8.4).
     var pendingBloom = false
     /// Set to the new tree total when a milestone tree is earned → transient banner.
@@ -44,6 +49,11 @@ final class AppModel {
         self.garden = garden
         self.entitlement = EntitlementService()
         self.streak = StreakTracker()
+
+        // Buddy image generation costs Gemini credits, so only subscribers trigger
+        // it (iOS-PRD §9): free users keep the bundled dormant seedling until they
+        // subscribe, at which point the bloom has a real bud to open into.
+        garden.isSubscribed = { [weak self] in self?.isSubscribed ?? false }
 
         garden.onChanged = { [weak self] plants in
             guard let self else { return }
@@ -150,6 +160,26 @@ final class AppModel {
         phase = .signedIn
         await garden.refresh()
         await fetchReferralCode()
+        // A fresh account with an empty garden enters the guided first-run flow
+        // (scan → seedling → paywall). A returning user (reinstall / second device)
+        // whose garden already has plants, or anyone who's finished it before, skips
+        // straight to the app.
+        firstRunActive = !firstRunComplete && garden.plants.isEmpty
+    }
+
+    private static let firstRunKey = "verdancy.firstRunComplete"
+    private var firstRunComplete: Bool {
+        get { UserDefaults.standard.bool(forKey: Self.firstRunKey) }
+        set { UserDefaults.standard.set(newValue, forKey: Self.firstRunKey) }
+    }
+
+    /// Leave the first-run flow into the main app — whether they subscribed (the
+    /// bloom just played) or chose "maybe later". Idempotent, so the bloom's
+    /// completion can call it unconditionally.
+    func completeFirstRun() {
+        guard firstRunActive || !firstRunComplete else { return }
+        firstRunComplete = true
+        firstRunActive = false
     }
 
     func fetchReferralCode() async {
@@ -166,6 +196,9 @@ final class AppModel {
         let active = try await entitlement.purchase(plan)
         if active {
             Analytics.log("trial_started", ["plan": plan == .annual ? "annual" : "monthly"])
+            // Now that they're a subscriber, generate the real bud(s) so the bloom
+            // opens into their plant's own buddy (gated until here to save credits).
+            garden.ensureBuddiesForAll()
             pendingBloom = true
             await reportMilestonesIfNeeded() // a subscriber with plants earns first_plant now
         }

@@ -8,7 +8,6 @@ import * as lambda from 'aws-cdk-lib/aws-lambda';
 import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
-import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
@@ -429,12 +428,18 @@ export class VerdancyStack extends cdk.Stack {
       memorySize: 1024,
       timeout: Duration.seconds(29),
       logGroup: buddyLogGroup,
+      // The buddy handler imports the style-reference PNG; bundle it into the
+      // JS as a Uint8Array via esbuild's `binary` loader.
+      bundling: {
+        ...commonFnProps.bundling,
+        loader: { '.png': 'binary' },
+      },
       environment: {
         TABLE_NAME: table.tableName,
         SPRITE_BUCKET: spriteBucket.bucketName,
         SPRITE_CDN_BASE: spriteCdnBase,
         GEMINI_API_KEY_SECRET_NAME: GEMINI_SECRET_NAME,
-        BUDDY_MODEL_ID: 'gemini-2.5-flash-image',
+        BUDDY_MODEL_ID: 'gemini-3.1-flash-image',
       },
     });
     // Least privilege: table RW (read garden, claim/finalize the buddy item),
@@ -447,27 +452,6 @@ export class VerdancyStack extends cdk.Stack {
         resources: [spriteBucket.arnForObjects('*')],
       }),
     );
-
-    // ---------------------------------------------------------------------
-    // CloudWatch alarms — "cheap insurance" (PRD 3.8). Error-rate alarms on
-    // both Lambdas. No SNS action (per the no-push-infrastructure rule); attach
-    // a notification later if desired. The hard cost cap on AI spend is the
-    // per-user quota, enforced in the handler.
-    // ---------------------------------------------------------------------
-    for (const [id, fn] of [
-      ['RouterErrorsAlarm', routerFn],
-      ['WebhookErrorsAlarm', webhookFn],
-      ['BuddyErrorsAlarm', buddyFn],
-      ['AuthErrorsAlarm', authFn],
-    ] as const) {
-      fn.metricErrors({ period: Duration.minutes(5) }).createAlarm(this, id, {
-        threshold: 5,
-        evaluationPeriods: 1,
-        comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
-        treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
-        alarmDescription: `${fn.functionName}: 5+ errors in 5 minutes`,
-      });
-    }
 
     // ---------------------------------------------------------------------
     // HTTP API — Cognito JWT authorizer on every route EXCEPT the webhook.

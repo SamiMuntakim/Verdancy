@@ -4,40 +4,23 @@ import { ApiError } from './errors';
 
 /**
  * Plant Buddy sprite post-processing (PRD Appendix A):
- *   chroma-key to transparent → nearest-neighbor downscale → quantize to the
- *   locked palette. Pure functions over raw RGBA so the pipeline is deterministic
- *   and unit-testable without the model or any native image binary.
+ *   chroma-key the flat magenta background → de-fringe residual magenta → crop to
+ *   the subject's bounding box → scale to fit 64px preserving aspect ratio →
+ *   center on a transparent canvas → encode PNG. Pure functions over raw RGBA so
+ *   the pipeline is deterministic and unit-testable without the model.
  *
- * The generation prompt asks for the bud on a flat magenta (#FF00FF) field; we
- * key that out, downscale with nearest-neighbor (hard pixel edges — no blending),
- * then snap every remaining pixel to the locked palette.
+ * Cropping + aspect-preserving fit makes the bud fill the sprite consistently
+ * however the model framed it — a small / off-center / odd-aspect subject no
+ * longer stretches into a sliver. We deliberately do NOT snap to a fixed palette:
+ * the style-reference art is the house style. Bump STYLE_VERSION when the art or
+ * pipeline changes so cached sprites re-generate.
  */
 
-export const STYLE_VERSION = 1;
+export const STYLE_VERSION = 3;
 export const TARGET_SIZE = 64;
 
 const CHROMA = { r: 255, g: 0, b: 255 };
-const CHROMA_DISTANCE_SQ = 90 * 90; // squared Euclidean tolerance around magenta
-
-/** The locked palette — tune this to revamp the art (and bump STYLE_VERSION). */
-export const PALETTE: ReadonlyArray<readonly [number, number, number]> = [
-  [38, 43, 38], // near-black outline
-  [60, 70, 60], // shadow green
-  [44, 92, 51], // deep leaf
-  [76, 145, 80], // leaf
-  [124, 188, 110], // light leaf
-  [183, 222, 148], // pale leaf
-  [233, 245, 200], // leaf highlight
-  [110, 78, 48], // stem brown
-  [140, 100, 64], // mid brown
-  [74, 53, 36], // soil
-  [183, 102, 71], // terracotta pot
-  [214, 140, 102], // pot light
-  [222, 120, 160], // flower pink
-  [240, 200, 96], // flower yellow
-  [96, 150, 186], // water blue
-  [245, 245, 240], // white
-];
+const CHROMA_DISTANCE_SQ = 100 * 100; // squared Euclidean tolerance around magenta
 
 export interface RawImage {
   width: number;
@@ -70,49 +53,95 @@ export function chromaKey(img: RawImage): RawImage {
   return img;
 }
 
-export function downscaleNearest(src: RawImage, size: number): RawImage {
-  const out = Buffer.alloc(size * size * 4);
-  for (let y = 0; y < size; y += 1) {
-    const sy = Math.floor((y * src.height) / size);
-    for (let x = 0; x < size; x += 1) {
-      const sx = Math.floor((x * src.width) / size);
+/**
+ * Drop residual magenta fringe (anti-aliased background edges the chroma-key
+ * missed): opaque pixels that are magenta-dominant — high red AND blue, low
+ * green, with red ≈ blue. Genuine pinks (red ≫ blue) are spared.
+ */
+export function defringeMagenta(img: RawImage): RawImage {
+  const { data } = img;
+  for (let i = 0; i < data.length; i += 4) {
+    if (data[i + 3] === 0) continue;
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+    if (r - g > 60 && b - g > 60 && Math.abs(r - b) < 60) data[i + 3] = 0;
+  }
+  return img;
+}
+
+/** Crop to the bounding box of opaque pixels (returns the input if nothing's opaque). */
+export function cropToContent(img: RawImage): RawImage {
+  const { width: w, height: h, data } = img;
+  let minX = w;
+  let minY = h;
+  let maxX = -1;
+  let maxY = -1;
+  for (let y = 0; y < h; y += 1) {
+    for (let x = 0; x < w; x += 1) {
+      if (data[(y * w + x) * 4 + 3] !== 0) {
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+  if (maxX < minX) return img; // fully transparent — nothing to crop
+  const cw = maxX - minX + 1;
+  const ch = maxY - minY + 1;
+  const out = Buffer.alloc(cw * ch * 4);
+  for (let y = 0; y < ch; y += 1) {
+    for (let x = 0; x < cw; x += 1) {
+      const si = ((minY + y) * w + (minX + x)) * 4;
+      const di = (y * cw + x) * 4;
+      out[di] = data[si];
+      out[di + 1] = data[si + 1];
+      out[di + 2] = data[si + 2];
+      out[di + 3] = data[si + 3];
+    }
+  }
+  return { width: cw, height: ch, data: out };
+}
+
+/** Nearest-neighbor scale to arbitrary dimensions (hard pixel edges — no blending). */
+export function scaleNearest(src: RawImage, w2: number, h2: number): RawImage {
+  const out = Buffer.alloc(w2 * h2 * 4);
+  for (let y = 0; y < h2; y += 1) {
+    const sy = Math.min(src.height - 1, Math.floor((y * src.height) / h2));
+    for (let x = 0; x < w2; x += 1) {
+      const sx = Math.min(src.width - 1, Math.floor((x * src.width) / w2));
       const si = (sy * src.width + sx) * 4;
-      const di = (y * size + x) * 4;
+      const di = (y * w2 + x) * 4;
       out[di] = src.data[si];
       out[di + 1] = src.data[si + 1];
       out[di + 2] = src.data[si + 2];
       out[di + 3] = src.data[si + 3];
     }
   }
-  return { width: size, height: size, data: out };
+  return { width: w2, height: h2, data: out };
 }
 
-function nearestPaletteColor(r: number, g: number, b: number): readonly [number, number, number] {
-  let best = PALETTE[0];
-  let bestDist = Infinity;
-  for (const c of PALETTE) {
-    const dr = r - c[0];
-    const dg = g - c[1];
-    const db = b - c[2];
-    const dist = dr * dr + dg * dg + db * db;
-    if (dist < bestDist) {
-      bestDist = dist;
-      best = c;
+/** Scale to fit `size`×`size` preserving aspect ratio, centered on transparent. */
+export function fitCentered(src: RawImage, size: number): RawImage {
+  const scale = Math.min(size / src.width, size / src.height);
+  const w2 = Math.max(1, Math.min(size, Math.round(src.width * scale)));
+  const h2 = Math.max(1, Math.min(size, Math.round(src.height * scale)));
+  const scaled = scaleNearest(src, w2, h2);
+  const out = Buffer.alloc(size * size * 4); // zeroed = fully transparent
+  const ox = Math.floor((size - w2) / 2);
+  const oy = Math.floor((size - h2) / 2);
+  for (let y = 0; y < h2; y += 1) {
+    for (let x = 0; x < w2; x += 1) {
+      const si = (y * w2 + x) * 4;
+      const di = ((oy + y) * size + (ox + x)) * 4;
+      out[di] = scaled.data[si];
+      out[di + 1] = scaled.data[si + 1];
+      out[di + 2] = scaled.data[si + 2];
+      out[di + 3] = scaled.data[si + 3];
     }
   }
-  return best;
-}
-
-export function quantizeToPalette(img: RawImage): RawImage {
-  const { data } = img;
-  for (let i = 0; i < data.length; i += 4) {
-    if (data[i + 3] === 0) continue; // leave transparent pixels alone
-    const [r, g, b] = nearestPaletteColor(data[i], data[i + 1], data[i + 2]);
-    data[i] = r;
-    data[i + 1] = g;
-    data[i + 2] = b;
-  }
-  return img;
+  return { width: size, height: size, data: out };
 }
 
 export function encodePng(img: RawImage): Buffer {
@@ -121,11 +150,12 @@ export function encodePng(img: RawImage): Buffer {
   return PNG.sync.write(png);
 }
 
-/** Full pipeline: decode → chroma-key → downscale → quantize → encode PNG. */
+/** Full pipeline: decode → chroma-key → de-fringe → crop → fit-centered → PNG. */
 export function processSprite(input: Buffer, mimeType: string): Buffer {
   const decoded = decodeImage(input, mimeType);
   const keyed = chromaKey(decoded);
-  const small = downscaleNearest(keyed, TARGET_SIZE);
-  const quantized = quantizeToPalette(small);
-  return encodePng(quantized);
+  defringeMagenta(keyed);
+  const cropped = cropToContent(keyed);
+  const fitted = fitCentered(cropped, TARGET_SIZE);
+  return encodePng(fitted);
 }

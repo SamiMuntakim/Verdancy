@@ -15,6 +15,9 @@ import {
 import { generateBuddyImage } from '../lib/gemini';
 import { processSprite, STYLE_VERSION } from '../lib/buddy';
 import { putSprite } from '../lib/s3';
+// Bundled style-reference sheet (esbuild `binary` loader → Uint8Array). Anchors
+// every generated bud to the same hand-authored art.
+import styleReference from '../assets/buddy-style-reference.png';
 
 /**
  * Plant Buddy generation proxy (PRD Appendix A). POST /buddy {species}. Buds are
@@ -54,28 +57,44 @@ export const handler = async (
 
     // Buds are only for species the caller actually grows (bounds AI image cost).
     const plants = await listPlants(sub);
-    if (!plants.some((p) => p.species === species)) {
+    const owned = plants.find((p) => p.species === species);
+    if (!owned) {
       throw new ApiError(403, 'No plant of that species in your garden');
     }
+    // The prompt reads traits better from the common name; the cache key stays the
+    // normalized species so every plant of a species shares one bud.
+    const displayName =
+      typeof owned.common_name === 'string' && owned.common_name.trim()
+        ? owned.common_name
+        : species;
 
     const existing = await getBuddy(species);
-    if (existing?.status === 'ready' && existing.sprite_url) {
+    if (
+      existing?.status === 'ready' &&
+      existing.sprite_url &&
+      existing.style_version === STYLE_VERSION
+    ) {
       return json(200, buddyView(species, existing));
     }
+    // A ready bud from an older STYLE_VERSION falls through to re-generate.
 
     const staleBefore = Math.floor(Date.now() / 1000) - STALE_SECONDS;
     const claimed = await claimBuddyGeneration(species, STYLE_VERSION, staleBefore);
     if (!claimed) {
       // Someone else is generating (or just finished).
       const current = await getBuddy(species);
-      if (current?.status === 'ready' && current.sprite_url) {
+      if (
+        current?.status === 'ready' &&
+        current.sprite_url &&
+        current.style_version === STYLE_VERSION
+      ) {
         return json(200, buddyView(species, current));
       }
       return json(202, { species, status: 'pending' });
     }
 
     try {
-      const { data, mimeType } = await generateBuddyImage(species);
+      const { data, mimeType } = await generateBuddyImage(displayName, styleReference);
       const png = processSprite(data, mimeType);
       const key = spriteKey(species, STYLE_VERSION);
       await putSprite(key, png);

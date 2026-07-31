@@ -12,14 +12,22 @@ struct RootView: View {
             switch app.phase {
             case .launching: LaunchView()
             case .signedOut: OnboardingView()
-            case .signedIn: MainTabView()
+            case .signedIn:
+                // A brand-new account runs the guided first-run flow (scan →
+                // seedling → paywall) before landing in the tab bar (iOS-PRD §8.2).
+                if app.firstRunActive { FirstRunView() } else { MainTabView() }
             }
         }
         .preferredColorScheme(app.appearance.colorScheme)
         .animation(.smooth, value: app.phase)
+        .animation(.smooth, value: app.firstRunActive)
         .fullScreenCover(isPresented: $app.pendingBloom) {
-            BloomCelebrationView {
+            // Bloom into the user's most recent plant's real bud (the one they saved
+            // in onboarding), not a generic sprite.
+            BloomCelebrationView(plant: app.garden.plants.first) {
                 app.pendingBloom = false
+                // If this bloom capped the first-run flow, leave it for the tab bar.
+                app.completeFirstRun()
                 // Peak-delight moment; the system throttles how often it shows.
                 requestReview()
             }

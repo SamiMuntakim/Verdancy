@@ -3,9 +3,14 @@
 Operating manual for the Verdancy iOS app. **`iOS-PRD.md` (repo root) is the source of truth for
 *what* to build**; the backend `PRD.md` is the API contract. This file is *how* to work.
 
-> **Build environment:** this is a SwiftUI app — it compiles and runs **only on macOS with Xcode**.
-> It is being authored on Windows, so the Swift sources here are **carefully written but not
-> compiler-verified.** A Mac/Xcode pass is required.
+> **Build environment:** SwiftUI app, min iOS 17 — builds and runs on **macOS with Xcode**
+> (verified on **Xcode 26.6**). It now **compiles cleanly (0 errors / 0 warnings)** and has been
+> installed and launched on a **physical iPhone**. Device deploy: `xcodebuild -scheme Verdancy
+> -destination 'platform=iOS,id=<udid>' -allowProvisioningUpdates build`, then
+> `xcrun devicectl device install app --device <udid> <Verdancy.app>` and
+> `xcrun devicectl device process launch --device <udid> com.verdancy.app` (automatic signing,
+> team `T8LRTJ92ND`, bundle `com.verdancy.app`). The earlier "authored on Windows, not
+> compiler-verified" caveat no longer applies.
 
 ## Project setup
 

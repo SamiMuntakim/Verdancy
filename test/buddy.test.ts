@@ -16,6 +16,7 @@ import type {
 } from 'aws-lambda';
 import { handler } from '../src/handlers/buddy';
 import { generateBuddyImage } from '../src/lib/gemini';
+import { STYLE_VERSION } from '../src/lib/buddy';
 
 const ddbMock = mockClient(DynamoDBDocumentClient);
 const s3Mock = mockClient(S3Client);
@@ -84,12 +85,35 @@ test('403 when the caller has no plant of that species', async () => {
 test('200 cache hit returns the stored sprite (no generation)', async () => {
   ddbMock.on(QueryCommand).resolves({ Items: [{ species: SPECIES }] });
   ddbMock.on(GetCommand).resolves({
-    Item: { status: 'ready', sprite_url: 'https://cdn.example/sprites/x/v1.png', style_version: 1 },
+    Item: {
+      status: 'ready',
+      sprite_url: 'https://cdn.example/sprites/x/v.png',
+      style_version: STYLE_VERSION,
+    },
   });
   const res = await run({ species: SPECIES });
   expect(res.statusCode).toBe(200);
   expect(bodyOf(res).sprite_url).toContain('/sprites/');
   expect(genMock).not.toHaveBeenCalled();
+});
+
+test('re-generates when the cached bud is an older style_version', async () => {
+  ddbMock.on(QueryCommand).resolves({ Items: [{ species: SPECIES }] });
+  ddbMock.on(GetCommand).resolves({
+    Item: {
+      status: 'ready',
+      sprite_url: 'https://cdn.example/sprites/x/old.png',
+      style_version: STYLE_VERSION - 1,
+    },
+  });
+  ddbMock.on(PutCommand).resolves({}); // claim succeeds (stale style version)
+  ddbMock.on(UpdateCommand).resolves({}); // finalize
+  s3Mock.on(PutObjectCommand).resolves({});
+  genMock.mockResolvedValue({ data: smallPng(), mimeType: 'image/png' });
+
+  const res = await run({ species: SPECIES });
+  expect(res.statusCode).toBe(201);
+  expect(genMock).toHaveBeenCalledTimes(1);
 });
 
 test('201 generates → processes → uploads → finalizes', async () => {

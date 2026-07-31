@@ -26,17 +26,17 @@ This is the **iOS app**. The backend (AWS) is specced in `PRD.md`; this document
 | UI | **SwiftUI**, minimum **iOS 17.0** |
 | State | **`@Observable`** (Observation framework), MVVM-lite: views + view models + one `APIClient` + one `AuthService` |
 | Networking | **URLSession** (no third-party HTTP library) |
-| Auth | **Native Sign in with Apple** (`AuthenticationServices`) federated into Cognito, via **AWS Amplify Swift (Auth only)** for the Cognito token lifecycle, behind an `AuthService` protocol so it's swappable |
+| Auth | **Native Sign in with Apple** (`AuthenticationServices`) exchanged for Cognito user-pool tokens via the backend `POST /auth/apple`, then refreshed directly against Cognito — all first-party `URLSession` in `NativeAppleAuthService`, behind an `AuthService` protocol so it's swappable (**no Amplify**) |
 | Paywall / entitlement | **RevenueCat** (`purchases-ios`) |
 | Image resize | **ImageIO / Core Graphics** downsample to ≤ ~1 MP before any upload or AI call |
 | Local persistence | **JSON snapshot on disk** (garden + trees) + a **custom on-disk image cache** keyed by `image_ref`. No SwiftData/Core Data for MVP. |
 | Notifications | **UserNotifications** (local only) |
 
-**Dependency count for MVP: two** (RevenueCat + Amplify Auth). Everything else is first-party.
+**Dependency count for MVP: one** (RevenueCat). Everything else — including the native Apple auth + Cognito token exchange — is first-party `URLSession`.
 
 **MVP sign-in scope:** **Apple only.** The backend supports Google + email too, but the app surfaces only Sign in with Apple in v1 for one clean auth path. Google/email are a fast-follow.
 
-**Plant Bud scope (important):** because the bud reveal is now a load-bearing **conversion** mechanic (§8–§9), a **minimal** version of the bud ships in MVP — the seed/closed-bud teaser, the bloom animation, a small starter set of buds for the most common houseplants, and a generic fallback bud. The **full** per-species library (~100–200 hand-reviewed sprites), rich mood states, growth stages, and the rare-species generation pipeline remain **post-MVP** (backend Appendix A).
+**Plant Bud scope (important):** because the bud reveal is now a load-bearing **conversion** mechanic (§8–§9), a **minimal** version of the bud ships in MVP — the seed/closed-bud teaser, the bloom animation, a small starter set of buds for the most common houseplants, and a generic fallback bud (all bundled, offline). The **per-species generation pipeline is built on the backend** (buds are AI-generated once per species from a licensed style-reference sheet and served via S3/CloudFront — PRD Appendix A), and the app now **calls `POST /buddy` on plant-save** (polling `202`, silent fallback to the bundled sprite on error) so generated buds populate; `BudView` prefers the resolved remote sprite when present, and the bloom reveals the plant's own bud. Rich mood states, growth stages, and share cards remain **post-MVP**.
 
 **App Store economics:** enroll in **Apple's Small Business Program** (you keep 85% while under $1M/yr). Every price/margin figure in §7 and §10 assumes this.
 
@@ -159,7 +159,7 @@ A pixel-art **bud** companion, one per plant. The reveal mechanic is core to con
 
 **In MVP:** the seed/dormant state, the bloom animation, a **small curated starter set** of buds for the most common first-scan houseplants (e.g. the top ~10–20: pothos, snake plant, monstera, aloe, spider plant, ZZ, peace lily…), and a **generic fallback bud** for everything else. This is enough to make the reveal land without the full library.
 
-**Post-MVP (backend Appendix A):** the full ~100–200 per-species hand-reviewed library, the rare-species S3/CloudFront generation pipeline, rich mood/growth states, share cards.
+**Backend generation (built — PRD Appendix A):** instead of a hand-drawn ~100–200 library, buds are **AI-generated once per species** from a licensed style-reference sheet (Nano Banana 2 Lite), post-processed, and served via S3/CloudFront; `BudView` prefers a resolved remote `sprite_url` when present. **iOS wiring (done):** the app calls `POST /buddy` on plant-save (polls `202`, silent bundled fallback), applies the shared sprite across the species, and the bloom reveal opens into the plant's own bud. **Still post-MVP:** rich mood/growth states and share cards.
 
 **Edge case:** a first scan of a rare species with no bundled bud uses the generic fallback (still charming). Steer the "scan to start" prompt toward common houseplants so the first reveal is strong.
 
@@ -201,7 +201,7 @@ AI ID is a commodity; **retention is the moat.** The Duolingo playbook applies: 
 
 **Prerequisites:** Xcode; Apple Developer account with Sign in with Apple; the deployed backend (Cognito IDs, API base URL); RevenueCat SDK key + configured offerings (annual hero + monthly); the starter bud sprites + bloom animation asset.
 
-**Phase 1 — Shell + Auth.** SwiftUI app, `TabView` with four placeholder tabs, `AuthService` (Sign in with Apple → Cognito via Amplify), `APIClient` with JWT attach + refresh, `POST /users` on first sign-in. *Accept:* sign in with Apple, land on the tab bar, an authed `GET /plants` returns 200 (empty).
+**Phase 1 — Shell + Auth.** SwiftUI app, `TabView` with four placeholder tabs, `AuthService` (native `ASAuthorizationController` Sign in with Apple → backend `POST /auth/apple` → Cognito user-pool tokens; **no Amplify**), `APIClient` with JWT attach + refresh, `POST /users` on first sign-in. *Accept:* sign in with Apple, land on the tab bar, an authed `GET /plants` returns 200 (empty).
 
 **Phase 2 — Core loop + the seed.** Capture + downsample, Identify + Diagnose, confidence handling (§6), the save flow (`/uploads` → S3 → `/plants`), the guided personalize-care step (`/plants/{id}/care-plan`, subscriber-gated), image cache, and the **dormant closed-bud state** on a saved plant. *Accept:* scan a real plant → identity card → name + save → personalize (subscriber) → tailored care plan, or skip → "Finish personalizing care" prompt; it persists and reappears on relaunch with its photo and a dormant bud; a low-confidence result creates no fake schedule.
 

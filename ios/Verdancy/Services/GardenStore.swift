@@ -29,6 +29,11 @@ final class GardenStore {
     /// can update the streak + reschedule reminders. Does NOT fire on snapshot hydrate.
     var onChanged: (([Plant]) -> Void)?
 
+    /// Whether the caller is a subscriber. Buddy image generation (`POST /buddy`)
+    /// costs Gemini credits, so it only runs for subscribers (iOS-PRD §8/§9) — free
+    /// users keep the bundled dormant seedling. Set by `AppModel`.
+    var isSubscribed: () -> Bool = { false }
+
     init(api: APIClient) {
         self.api = api
     }
@@ -140,6 +145,64 @@ final class GardenStore {
         plants.insert(plant, at: 0)
         SnapshotStore.save(GardenSnapshot(plants: plants, trees: trees))
         onChanged?(plants)
+        ensureBuddy(for: plant)
+    }
+
+    // MARK: Plant Buddy (shared per species — PRD Appendix A)
+
+    /// Kick off shared per-species buddy generation for a newly saved plant
+    /// (iOS-PRD §9). Fire-and-forget: the bud is delight, never blocking — on any
+    /// failure the bundled fallback sprite still shows. Gated on subscription so we
+    /// never spend Gemini credits generating a bud a free user can't yet bloom (§8);
+    /// on subscribe, `ensureBuddiesForAll()` catches up the existing garden.
+    func ensureBuddy(for plant: Plant) {
+        guard !AppConfig.useMockAuth else { return }   // no backend in mock mode
+        guard isSubscribed() else { return }           // subscribers only (save credits)
+        guard plant.buddy?.isReady != true else { return } // already resolved
+        let species = plant.species
+        guard !species.isEmpty else { return }
+        Task { await resolveBuddy(species: species) }
+    }
+
+    /// Resolve buds for every plant already in the garden — called the moment the
+    /// user subscribes, so plants saved as free-tier seedlings bloom into a real bud.
+    func ensureBuddiesForAll() {
+        for plant in plants { ensureBuddy(for: plant) }
+    }
+
+    /// `POST /buddy`: `ready` → apply; `pending` (a concurrent generation) → back
+    /// off and retry a few times, then leave it (a later `GET /plants` resolves it).
+    /// Any error → silent; the bundled sprite remains.
+    private func resolveBuddy(species: String) async {
+        Analytics.log("buddy_requested")
+        for attempt in 0..<4 {
+            do {
+                let resp = try await api.buddy(species: species)
+                if resp.status == "ready", let url = resp.spriteUrl {
+                    applyBuddy(Buddy(status: "ready", spriteUrl: url, styleVersion: resp.styleVersion),
+                               toSpecies: species)
+                    Analytics.log("buddy_ready")
+                    return
+                }
+            } catch {
+                Analytics.log("buddy_failed")
+                return
+            }
+            if attempt < 3 { try? await Task.sleep(for: .seconds(Double((attempt + 1) * 2))) }
+        }
+        Analytics.log("buddy_pending") // still generating; next refresh will pick it up
+    }
+
+    /// Buds are shared per species, so apply the resolved sprite to every plant of
+    /// that species in the garden.
+    private func applyBuddy(_ buddy: Buddy, toSpecies species: String) {
+        var changed = false
+        for idx in plants.indices
+        where plants[idx].species == species && plants[idx].buddy?.spriteUrl != buddy.spriteUrl {
+            plants[idx] = plants[idx].withBuddy(buddy)
+            changed = true
+        }
+        if changed { SnapshotStore.save(GardenSnapshot(plants: plants, trees: trees)) }
     }
 
     /// Replace a plant in place (after an edit), preserving its position.

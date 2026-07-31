@@ -33,10 +33,11 @@ enum AppConfig {
     /// native Sign in with Apple against the deployed Cognito pool above.
     static let useMockAuth = false
 
-    /// Free identify allowance, mirrored from the backend `FREE_AI_LIFETIME_LIMIT`
-    /// purely for client-side messaging ("your first scan is free"). The server is
-    /// the real gate.
-    static let freeScanMessageCount = 1
+    /// Free identify allowance per day, mirrored from the backend
+    /// `FREE_DAILY_AI_LIMIT` purely for client-side messaging ("2 free scans a day").
+    /// The server is the real gate. Free is ID-only — no care plans, reminders,
+    /// diagnose, buddies, or trees; those are the premium value (iOS-PRD §7/§8).
+    static let freeDailyScanCount = 2
 
     /// Named planting partner (iOS-PRD §10: provably real trees, never vague).
     static let plantingPartner = "One Tree Planted"

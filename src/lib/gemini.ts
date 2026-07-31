@@ -13,8 +13,13 @@ import { applyIdentifySafety } from './safety';
  */
 
 const DEFAULT_MODEL = 'gemini-3.5-flash';
-// Image-output model for Plant Buddy sprites (override via BUDDY_MODEL_ID).
-const DEFAULT_BUDDY_MODEL = 'gemini-2.5-flash-image';
+// Image-output model for Plant Buddy sprites (Nano Banana 2; override via
+// BUDDY_MODEL_ID). The full model (not the Lite tier) — reference-style adherence
+// matters for the bud reveal, and the Lite tier drew literal plants instead of the
+// chibi mascot. Pinned to a stable id, NOT a `-latest` alias: the model lives
+// server-side so swapping it never touches the app, and a stable id avoids silent
+// hot-swaps that could drift the bud art mid-collection.
+const DEFAULT_BUDDY_MODEL = 'gemini-3.1-flash-image';
 
 const sm = new SecretsManagerClient({});
 let client: GoogleGenAI | undefined;
@@ -276,37 +281,61 @@ export async function generateCarePlan(
   );
 }
 
-// Plant Buddy sprite generation (PRD Appendix A). Fixed style prefix + species
-// clause; flat magenta field so the background keys out cleanly. (Style-bible
-// reference sprites can be added as extra input parts once the art exists.)
-const BUDDY_STYLE_PREFIX = [
-  'Generate a single cute pixel-art "plant buddy" mascot: a chibi anthropomorphic',
-  'houseplant with a simple friendly face, clean 16-bit pixel-art style, bold dark',
-  'outline, limited flat colors, centered, full body, front-facing, no text and no',
-  'ground shadow. Put it on a completely flat solid magenta (#FF00FF) background',
-  'with no gradient so the background can be keyed out.',
-].join(' ');
+// Plant Buddy sprite generation (PRD Appendix A). Style is anchored to a bundled
+// reference sheet passed as an input image part (the caller supplies the bytes),
+// so every bud matches the same hand-authored art. The prompt asks for a flat
+// magenta (#FF00FF) field so the background keys out cleanly downstream.
+function buddyPrompt(plantName: string): string {
+  return [
+    `Using the provided reference image ONLY as the art-style guide (colors, shading, pixel size, ` +
+      `proportions), generate ONE single new pixel-art "plant bud" mascot inspired by a ` +
+      `${plantName}. Match the reference's STYLE, not its layout — output a single character, ` +
+      `never a row, grid, or sprite sheet.`,
+    `Shape is critical: a small, round, chibi blob creature with a simple cute face — short and ` +
+      `squat, roughly as wide as it is tall — that FILLS most of the square frame. Do NOT draw a ` +
+      `realistic, botanical, or full-size ${plantName}; no tall stem, no thin plant. The ` +
+      `${plantName}'s traits (petals, leaves, color, fruit) appear only as small accents on the ` +
+      `round body — e.g. petals as a little crown, leaves as tiny arms.`,
+    `Output constraints: exactly ONE character, alone and centered, large in the frame. Flat solid ` +
+      `magenta (#FF00FF) background, no gradient. No reflection, no text, no pot, no ground shadow, ` +
+      `no other characters or copies.`,
+  ].join('\n\n');
+}
+
+/** Hygiene on the plant name we interpolate into the prompt — collapse whitespace,
+ *  strip newlines, and cap length so a malformed record can't reshape the prompt. */
+function sanitizePlantName(name: string): string {
+  const clean = name.replace(/\s+/g, ' ').trim().slice(0, 60);
+  return clean || 'houseplant';
+}
 
 export interface GeneratedImage {
   data: Buffer;
   mimeType: string;
 }
 
-export async function generateBuddyImage(species: string): Promise<GeneratedImage> {
+export async function generateBuddyImage(
+  plantName: string,
+  referencePng?: Uint8Array,
+): Promise<GeneratedImage> {
   const ai = await getClient();
   const model = process.env.BUDDY_MODEL_ID || DEFAULT_BUDDY_MODEL;
+
+  const parts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [];
+  if (referencePng) {
+    parts.push({
+      inlineData: { mimeType: 'image/png', data: Buffer.from(referencePng).toString('base64') },
+    });
+  }
+  parts.push({ text: buddyPrompt(sanitizePlantName(plantName)) });
+
   const res = await ai.models.generateContent({
     model,
-    contents: [
-      {
-        role: 'user',
-        parts: [{ text: `${BUDDY_STYLE_PREFIX} The plant species is: ${species}.` }],
-      },
-    ],
+    contents: [{ role: 'user', parts }],
     config: { responseModalities: [Modality.IMAGE] },
   });
-  const parts = res.candidates?.[0]?.content?.parts ?? [];
-  for (const part of parts) {
+  const outParts = res.candidates?.[0]?.content?.parts ?? [];
+  for (const part of outParts) {
     const inline = part.inlineData;
     if (inline?.data) {
       return { data: Buffer.from(inline.data, 'base64'), mimeType: inline.mimeType ?? 'image/png' };

@@ -1,4 +1,4 @@
-import AVFoundation
+@preconcurrency import AVFoundation
 import Observation
 import SwiftUI
 
@@ -100,7 +100,9 @@ final class LightMeter {
             if !session.isRunning { session.startRunning() }
         }
         timer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
-            self?.sample()
+            // The timer fires on the main run loop it was scheduled on, so the
+            // main-actor isolation holds — assert it rather than hopping async.
+            MainActor.assumeIsolated { self?.sample() }
         }
     }
 

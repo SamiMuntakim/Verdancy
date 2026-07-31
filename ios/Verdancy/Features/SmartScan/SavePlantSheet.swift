@@ -8,7 +8,11 @@ struct SavePlantSheet: View {
 
     let card: CareCard
     let jpeg: Data
-    let onSaved: () -> Void
+    /// When false (the first-run flow), skip the subscriber-gated "personalize care"
+    /// step (iOS-PRD §8.2) and hand the saved plant straight back for the seedling
+    /// reveal. Standard scans keep the guided personalize step.
+    var personalizeAfterSave = true
+    let onSaved: (Plant) -> Void
 
     @State private var nickname: String
     @State private var isSaving = false
@@ -17,9 +21,15 @@ struct SavePlantSheet: View {
     /// "personalize care" step (iOS-PRD §3.2/§3.3).
     @State private var savedPlant: Plant?
 
-    init(card: CareCard, jpeg: Data, onSaved: @escaping () -> Void) {
+    init(
+        card: CareCard,
+        jpeg: Data,
+        personalizeAfterSave: Bool = true,
+        onSaved: @escaping (Plant) -> Void
+    ) {
         self.card = card
         self.jpeg = jpeg
+        self.personalizeAfterSave = personalizeAfterSave
         self.onSaved = onSaved
         _nickname = State(initialValue: card.isUnidentified ? "" : card.commonName)
     }
@@ -73,7 +83,7 @@ struct SavePlantSheet: View {
             }
             .overlay { if isSaving { ProgressView().tint(Theme.Color.leaf) } }
             .navigationDestination(item: $savedPlant) { plant in
-                PersonalizeCareView(plant: plant) { onSaved(); dismiss() }
+                PersonalizeCareView(plant: plant) { onSaved(plant); dismiss() }
                     .navigationBarBackButtonHidden(true)
             }
         }
@@ -100,10 +110,11 @@ struct SavePlantSheet: View {
             Analytics.log("plant_saved", ["unidentified": String(card.isUnidentified)])
             Haptics.success()
             isSaving = false
-            // Identified plants continue into the guided "personalize care" step;
-            // an unidentified plant has no schedule to tailor, so we finish here.
-            if card.isUnidentified {
-                onSaved()
+            // Identified plants continue into the guided "personalize care" step —
+            // unless this is first-run (skip it, straight to the seedling reveal) or
+            // the plant is unidentified (no schedule to tailor).
+            if card.isUnidentified || !personalizeAfterSave {
+                onSaved(saved)
                 dismiss()
             } else {
                 savedPlant = saved

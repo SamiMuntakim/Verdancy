@@ -47,7 +47,7 @@ private struct SmartScanContent: View {
             }
             .sheet(isPresented: $showPaywall) { PaywallView() }
             .sheet(item: $saveContext) { ctx in
-                SavePlantSheet(card: ctx.card, jpeg: ctx.jpeg) {
+                SavePlantSheet(card: ctx.card, jpeg: ctx.jpeg) { _ in
                     vm.reset()
                     // iOS-PRD §3.2: land where the plant (and its bud) now lives.
                     app.selectedTab = .oasis
@@ -117,9 +117,9 @@ private struct SmartScanContent: View {
         case .paywall:
             messageCard(
                 icon: "leaf.fill",
-                title: "Your free scan is used up",
-                message: "Subscribe to keep identifying plants and unlock care reminders.",
-                primary: ("See plans", { showPaywall = true })
+                title: "That's your \(AppConfig.freeDailyScanCount) free scans for today",
+                message: "Go Premium for unlimited IDs — plus care plans, reminders, diagnoses, blooming buddies, and real trees planted as you grow.",
+                primary: ("See Premium", { showPaywall = true })
             )
         case .rateLimited:
             messageCard(

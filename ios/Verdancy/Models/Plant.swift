@@ -41,6 +41,14 @@ struct Plant: Codable, Identifiable, Hashable {
               fertilizerInfo: fertilizerInfo, confidence: confidence, care: care, carePlan: carePlan,
               createdAt: createdAt, downloadUrl: downloadUrl, buddy: buddy)
     }
+
+    /// Copy with a resolved shared per-species buddy (after `POST /buddy`; iOS-PRD §9).
+    func withBuddy(_ buddy: Buddy?) -> Plant {
+        Plant(plantId: plantId, commonName: commonName, species: species, nickname: nickname,
+              imageRef: imageRef, toxicity: toxicity, taxonomy: taxonomy, lightingNeeds: lightingNeeds,
+              fertilizerInfo: fertilizerInfo, confidence: confidence, care: care, carePlan: carePlan,
+              createdAt: createdAt, downloadUrl: downloadUrl, buddy: buddy)
+    }
 }
 
 struct CareMap: Codable, Hashable {
@@ -89,7 +97,8 @@ enum CareType: String, CaseIterable, Codable {
     }
 }
 
-/// The shared per-species buddy (post-MVP backend; resolved into `GET /plants`).
+/// The shared per-species buddy — generated once via `POST /buddy` and resolved
+/// into `GET /plants` (PRD Appendix A).
 struct Buddy: Codable, Hashable {
     let status: String
     let spriteUrl: String?

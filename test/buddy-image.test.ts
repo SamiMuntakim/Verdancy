@@ -1,5 +1,5 @@
 import { PNG } from 'pngjs';
-import { processSprite, PALETTE, TARGET_SIZE } from '../src/lib/buddy';
+import { processSprite, defringeMagenta, TARGET_SIZE } from '../src/lib/buddy';
 
 function makePng(
   w: number,
@@ -20,27 +20,34 @@ function makePng(
   return PNG.sync.write(png);
 }
 
-describe('processSprite (chroma-key → downscale → quantize)', () => {
-  test('keys out magenta, emits a 64x64 palette-quantized PNG', () => {
-    // 16x16: 2px magenta border, green interior.
+describe('processSprite (chroma-key → de-fringe → crop → fit-centered)', () => {
+  test('crops to the subject and fits it centered, preserving colors', () => {
+    // 16x16 magenta with a 4-wide × 12-tall green bar centered → a tall subject.
     const src = makePng(16, 16, (x, y) =>
-      x < 2 || y < 2 || x > 13 || y > 13 ? [255, 0, 255] : [80, 150, 80],
+      x >= 6 && x <= 9 && y >= 2 && y <= 13 ? [80, 150, 80] : [255, 0, 255],
     );
     const out = PNG.sync.read(processSprite(src, 'image/png'));
 
     expect(out.width).toBe(TARGET_SIZE);
     expect(out.height).toBe(TARGET_SIZE);
 
-    // Top-left corner came from the magenta border → transparent.
-    expect(out.data[3]).toBe(0);
+    // A tall subject can't fill a square frame → corners stay transparent.
+    expect(out.data[3]).toBe(0); // top-left
+    const bottomRight = (TARGET_SIZE * TARGET_SIZE - 1) * 4;
+    expect(out.data[bottomRight + 3]).toBe(0);
 
-    // Center pixel is opaque and snapped to a locked-palette color.
+    // Center pixel is opaque and keeps the exact source green (no palette snap).
     const ci = ((TARGET_SIZE / 2) * TARGET_SIZE + TARGET_SIZE / 2) * 4;
     expect(out.data[ci + 3]).toBe(255);
-    const inPalette = PALETTE.some(
-      (c) => c[0] === out.data[ci] && c[1] === out.data[ci + 1] && c[2] === out.data[ci + 2],
-    );
-    expect(inPalette).toBe(true);
+    expect([out.data[ci], out.data[ci + 1], out.data[ci + 2]]).toEqual([80, 150, 80]);
+  });
+
+  test('de-fringes residual magenta but spares genuine pink', () => {
+    // pixel 0 = pink (red ≫ blue), pixel 1 = magenta fringe (red ≈ blue, low green).
+    const data = Buffer.from([222, 120, 160, 255, 200, 40, 200, 255]);
+    defringeMagenta({ width: 2, height: 1, data });
+    expect(data[3]).toBe(255); // pink kept
+    expect(data[7]).toBe(0); // magenta fringe removed
   });
 
   test('rejects an unsupported image format', () => {
