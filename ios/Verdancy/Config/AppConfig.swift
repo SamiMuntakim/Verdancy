@@ -46,6 +46,12 @@ enum AppConfig {
     /// proof. Gates the rating row on the paywall.
     static let showPaywallRating = false
 
+    /// Remote AI-generated Plant Buddy sprites (backend Appendix A) are OFF for
+    /// launch: every plant shows the bundled placeholder sprite, pending a
+    /// professionally authored sprite sheet. Flip to `true` to re-enable the
+    /// `POST /buddy` generation path and the CloudFront-served sprites.
+    static let budBackendEnabled = false
+
     /// Public site (GitHub Pages from /docs; swap for verdancy.app when the domain
     /// is live). Legal pages are App Store requirements.
     static let siteBaseURL = "https://samimuntakim.github.io/Verdancy"

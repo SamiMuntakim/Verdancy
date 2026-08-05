@@ -156,6 +156,7 @@ final class GardenStore {
     /// never spend Gemini credits generating a bud a free user can't yet bloom (§8);
     /// on subscribe, `ensureBuddiesForAll()` catches up the existing garden.
     func ensureBuddy(for plant: Plant) {
+        guard AppConfig.budBackendEnabled else { return } // launch: bundled sprites only
         guard !AppConfig.useMockAuth else { return }   // no backend in mock mode
         guard isSubscribed() else { return }           // subscribers only (save credits)
         guard plant.buddy?.isReady != true else { return } // already resolved

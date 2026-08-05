@@ -26,7 +26,8 @@ struct BudView: View {
     private var content: some View {
         if isSubscribed {
             Group {
-                if let urlString = plant.buddy?.spriteUrl, let url = URL(string: urlString) {
+                if AppConfig.budBackendEnabled,
+                   let urlString = plant.buddy?.spriteUrl, let url = URL(string: urlString) {
                     AsyncImage(url: url) { image in
                         image.resizable().interpolation(.none).scaledToFit()
                     } placeholder: {

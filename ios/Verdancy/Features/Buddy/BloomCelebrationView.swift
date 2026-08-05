@@ -82,7 +82,8 @@ struct BloomCelebrationView: View {
     /// Blooms into the user's actual plant bud: the resolved remote sprite when the
     /// backend has generated it, else the bundled sprite for its species.
     @ViewBuilder private var bloomedBud: some View {
-        if let urlString = plant?.buddy?.spriteUrl, let url = URL(string: urlString) {
+        if AppConfig.budBackendEnabled,
+           let urlString = plant?.buddy?.spriteUrl, let url = URL(string: urlString) {
             AsyncImage(url: url) { image in
                 image.resizable().interpolation(.none).scaledToFit()
             } placeholder: {
