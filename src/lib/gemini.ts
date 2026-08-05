@@ -296,9 +296,10 @@ function buddyPrompt(plantName: string): string {
       `realistic, botanical, or full-size ${plantName}; no tall stem, no thin plant. The ` +
       `${plantName}'s traits (petals, leaves, color, fruit) appear only as small accents on the ` +
       `round body — e.g. petals as a little crown, leaves as tiny arms.`,
-    `Output constraints: exactly ONE character, alone and centered, large in the frame. Flat solid ` +
-      `magenta (#FF00FF) background, no gradient. No reflection, no text, no pot, no ground shadow, ` +
-      `no other characters or copies.`,
+    `Output constraints: exactly ONE character, alone and centered, with a clear margin of empty ` +
+      `background on ALL FOUR sides — the character must NOT touch or run off any edge of the frame. ` +
+      `Flat solid magenta (#FF00FF) background, completely uniform, no gradient. No reflection, no ` +
+      `text, no pot, no ground shadow, no other characters or copies.`,
   ].join('\n\n');
 }
 
