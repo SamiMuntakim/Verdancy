@@ -99,12 +99,12 @@ enum EmailAuth {
         case "NotAuthorizedException": return .message("Incorrect email or password.")
         case "UsernameExistsException": return .message("An account with that email already exists.")
         case "CodeMismatchException": return .message("That code isn't right.")
-        case "ExpiredCodeException": return .message("That code expired — request a new one.")
+        case "ExpiredCodeException": return .message("That code expired. Request a new one.")
         case "UserNotFoundException": return .message("No account found for that email.")
         case "InvalidPasswordException", "InvalidParameterException":
             return .message("Use 12+ characters with an uppercase, lowercase, number, and symbol.")
         case "LimitExceededException", "TooManyRequestsException":
-            return .message("Too many attempts — please wait a bit and try again.")
+            return .message("Too many attempts. Please wait a bit and try again.")
         default: return .message("Something went wrong. Please try again.")
         }
     }

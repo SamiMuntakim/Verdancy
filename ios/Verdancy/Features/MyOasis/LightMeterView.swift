@@ -86,7 +86,7 @@ struct LightMeterView: View {
     }
 
     private var disclaimer: some View {
-        Text("A camera-based estimate — use it as a guide, not a lab reading.")
+        Text("A camera-based estimate. Use it as a guide, not a lab reading.")
             .font(.caption2)
             .foregroundStyle(Theme.Color.textSecondary)
             .multilineTextAlignment(.center)
@@ -143,7 +143,7 @@ struct LightMeterView: View {
             return Verdict(
                 title: "Brighter than needed",
                 detail:
-                    "\(name) prefers \(target.title.lowercased()); strong light here may scorch it — shift it back a little.",
+                    "\(name) prefers \(target.title.lowercased()); strong light here may scorch it. Shift it back a little.",
                 icon: "exclamationmark.triangle.fill", tint: .orange)
         }
     }

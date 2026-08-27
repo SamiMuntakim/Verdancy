@@ -77,8 +77,8 @@ struct BudView: View {
     }
 
     private var accessibilityText: String {
-        if !isSubscribed { return "Dormant bud — subscribe to bloom" }
-        return isThirsty ? "Plant buddy — care is due" : "Plant buddy"
+        if !isSubscribed { return "Dormant bud, subscribe to bloom" }
+        return isThirsty ? "Plant buddy, care is due" : "Plant buddy"
     }
 
     private var bundledBloom: some View {

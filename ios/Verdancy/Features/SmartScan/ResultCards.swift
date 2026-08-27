@@ -18,7 +18,7 @@ struct CareCardView: View {
 
             if card.isUnidentified {
                 Label(
-                    "We're not sure about this one — try a clearer, well-lit photo of the leaves.",
+                    "We're not sure about this one. Try a clearer, well-lit photo of the leaves.",
                     systemImage: "questionmark.circle.fill"
                 )
                 .font(.subheadline)
@@ -130,7 +130,7 @@ struct ConfidenceBadge: View {
 struct SeverityChip: View {
     let severity: Severity?
     var body: some View {
-        Text(severity?.rawValue ?? "—")
+        Text(severity?.rawValue ?? "-")
             .font(.caption.weight(.semibold))
             .padding(.horizontal, Theme.Space.s)
             .padding(.vertical, Theme.Space.xs)

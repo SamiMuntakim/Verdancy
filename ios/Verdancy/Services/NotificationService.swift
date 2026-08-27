@@ -94,7 +94,7 @@ final class NotificationService {
 
         let content = UNMutableNotificationContent()
         content.title = "Your \(streak)-day streak is alive 🌱"
-        content.body = "One quick check-in keeps it growing — a plant is still waiting today."
+        content.body = "One quick check-in keeps it growing. A plant is still waiting today."
         content.sound = .default
 
         let trigger = UNTimeIntervalNotificationTrigger(

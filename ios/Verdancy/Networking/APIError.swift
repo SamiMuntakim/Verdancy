@@ -17,10 +17,10 @@ enum APIError: Error, Equatable {
     var userMessage: String {
         switch self {
         case .unauthorized: return "Please sign in again."
-        case .paywall: return "Your free scan is used up — subscribe to keep going."
+        case .paywall: return "Your free scan is used up. Subscribe to keep going."
         case .forbidden: return "You don't have access to that."
         case .notFound: return "We couldn't find that."
-        case .rateLimited: return "You've scanned a lot today — try again tomorrow."
+        case .rateLimited: return "You've scanned a lot today. Try again tomorrow."
         case .badRequest(let m): return m ?? "Something about that request wasn't right."
         case .server: return "Something went wrong on our end. Please try again."
         case .decoding: return "We got an unexpected response."

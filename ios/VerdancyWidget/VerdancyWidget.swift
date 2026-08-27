@@ -74,7 +74,7 @@ struct DueTodayView: View {
             } else {
                 Text(summary == nil
                      ? "Open Verdancy to grow your garden."
-                     : "All caught up — your plants are happy 🌿")
+                     : "All caught up. Your plants are happy 🌿")
                     .font(.caption)
                     .foregroundStyle(Theme.Color.textSecondary)
             }

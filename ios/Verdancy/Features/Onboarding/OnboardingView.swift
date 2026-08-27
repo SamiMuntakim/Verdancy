@@ -17,7 +17,7 @@ enum PetContext {
     /// The toxicity warning, personalized when we know pets are around.
     static var toxicityWarning: String {
         hasPets
-            ? "Toxic to pets — keep it out of reach of curious paws"
+            ? "Toxic to pets. Keep it out of reach of curious paws"
             : "Toxic to pets and children if ingested"
     }
 }
@@ -77,11 +77,11 @@ struct OnboardingView: View {
 
     private let slides: [(icon: String, title: String, body: String)] = [
         ("camera.viewfinder", "Know every plant you meet",
-         "Point your camera at any plant — get its name, whether it's pet-safe, and how to keep it thriving in seconds."),
+         "Point your camera at any plant to get its name, whether it's pet-safe, and how to keep it thriving in seconds."),
         ("drop.fill", "Never kill a plant again",
-         "Care reminders tuned to each plant you own, so you water at the right time — never too much, never too late."),
+         "Care reminders tuned to each plant you own, so you water at the right time, never too much, never too late."),
         ("tree.fill", "You grow plants.\nWe grow forests.",
-         "This isn't just another plant app. Subscribe annually and we fund 10 real trees through \(AppConfig.plantingPartner) — plus one more for every 30-day care streak — each with its own certificate."),
+         "This isn't just another plant app. Subscribe annually and we fund 10 real trees through \(AppConfig.plantingPartner), plus one more for every 30-day care streak, each with its own certificate."),
     ]
 
     /// The short quiz (iOS-PRD §8.1). Pets is a separate final page below.
@@ -293,9 +293,9 @@ struct OnboardingView: View {
                     .foregroundStyle(Theme.Color.textSecondary)
             }
             HStack(spacing: Theme.Space.m) {
-                QuizChoice(label: "Yes, pets", icon: "pawprint.fill",
+                QuizChoice(label: "Yes", icon: "pawprint.fill",
                            selected: petsAnswer == true) { answerPets(true) }
-                QuizChoice(label: "No pets", icon: "house.fill",
+                QuizChoice(label: "No", icon: "house.fill",
                            selected: petsAnswer == false) { answerPets(false) }
             }
         }

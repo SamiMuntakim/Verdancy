@@ -39,7 +39,7 @@ enum LightLevel: Int, CaseIterable {
         case .medium:
             return "Enough for many easygoing houseplants, but not for sun-lovers."
         case .brightIndirect:
-            return "The sweet spot for most houseplants — bright, but out of harsh direct rays."
+            return "The sweet spot for most houseplants: bright, but out of harsh direct rays."
         case .direct:
             return "Strong, direct light. Great for cacti and succulents; can scorch tender leaves."
         }

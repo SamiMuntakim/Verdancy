@@ -127,7 +127,7 @@ struct OasisEmptyState: View {
             IconBadge(systemImage: "leaf.fill", size: 84)
             VStack(spacing: Theme.Space.xs) {
                 Text("Start your oasis").font(.title3.weight(.semibold))
-                Text("Scan your first plant — your garden grows from here.")
+                Text("Scan your first plant. Your garden grows from here.")
                     .font(.subheadline).multilineTextAlignment(.center)
                     .foregroundStyle(Theme.Color.textSecondary)
             }

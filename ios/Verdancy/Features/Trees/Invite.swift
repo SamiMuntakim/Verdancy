@@ -8,8 +8,8 @@ enum Invite {
 
     static func message(code: String?) -> String {
         var text =
-            "I'm keeping my plants alive (and growing a real forest 🌳) with Verdancy — "
-            + "join me and we each get a tree planted."
+            "I'm keeping my plants alive (and growing a real forest 🌳) with Verdancy. "
+            + "Join me and we each get a tree planted."
         if let code, !code.isEmpty {
             text += " Use my invite code: \(code)"
         }

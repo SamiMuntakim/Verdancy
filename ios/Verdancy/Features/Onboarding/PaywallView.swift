@@ -43,7 +43,7 @@ struct PaywallView: View {
                                 Theme.leafGradient,
                                 in: RoundedRectangle(cornerRadius: 18, style: .continuous)
                             )
-                        Text("Keep your plants alive —\nand plant 10 real trees.")
+                        Text("Keep your plants alive,\nand plant 10 real trees.")
                             .font(.title2.weight(.bold)).multilineTextAlignment(.center)
                         Text("Free gives you \(AppConfig.freeDailyScanCount) plant IDs a day. Premium unlocks the whole thing.")
                             .font(.subheadline)
@@ -59,13 +59,13 @@ struct PaywallView: View {
 
                     VStack(spacing: Theme.Space.m) {
                         if planAvailable(.annual) {
-                            PlanRow(title: "Annual", price: annualPrice?.total ?? "—",
+                            PlanRow(title: "Annual", price: annualPrice?.total ?? "-",
                                     subtitle: annualSubtitle(annualPrice),
                                     badge: annualPrice?.savingsPercent.map { "SAVE \($0)%" },
                                     selected: plan == .annual) { plan = .annual }
                         }
                         if planAvailable(.monthly) {
-                            PlanRow(title: "Monthly", price: monthlyPrice?.total ?? "—",
+                            PlanRow(title: "Monthly", price: monthlyPrice?.total ?? "-",
                                     subtitle: "Flexible, month to month",
                                     badge: nil,
                                     selected: plan == .monthly) { plan = .monthly }
@@ -98,7 +98,7 @@ struct PaywallView: View {
                     .foregroundStyle(Theme.Color.textSecondary)
                     // Only the annual plan funds the 10 trees, so only promise them there.
                     Text(plan == .annual
-                         ? "No charge until your free trial ends — cancel in two taps. Your 10 trees are funded when your first year starts."
+                         ? "No charge until your free trial ends. Cancel in two taps. Your 10 trees are funded when your first year starts."
                          : "Cancel in two taps.")
                         .font(.caption2).multilineTextAlignment(.center)
                         .foregroundStyle(Theme.Color.textSecondary)
@@ -155,7 +155,7 @@ struct SocialProofCard: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Real trees, publicly counted")
                         .font(.subheadline.weight(.semibold))
-                    Text("Funded through \(AppConfig.plantingPartner) — each tree comes with its own certificate.")
+                    Text("Funded through \(AppConfig.plantingPartner). Each tree comes with its own certificate.")
                         .font(.caption)
                         .foregroundStyle(Theme.Color.textSecondary)
                 }

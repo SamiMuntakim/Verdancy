@@ -118,14 +118,14 @@ private struct SmartScanContent: View {
             messageCard(
                 icon: "leaf.fill",
                 title: "That's your \(AppConfig.freeDailyScanCount) free scans for today",
-                message: "Go Premium for unlimited IDs — plus care plans, reminders, diagnoses, blooming buddies, and real trees planted as you grow.",
+                message: "Go Premium for unlimited IDs, plus care plans, reminders, diagnoses, blooming buddies, and real trees planted as you grow.",
                 primary: ("See Premium", { showPaywall = true })
             )
         case .rateLimited:
             messageCard(
                 icon: "tortoise.fill",
                 title: "You've scanned a lot today",
-                message: "Come back tomorrow for more — your garden's safe.",
+                message: "Come back tomorrow for more. Your garden's safe.",
                 primary: ("OK", { vm.reset() })
             )
         case let .error(message):
@@ -143,7 +143,7 @@ private struct SmartScanContent: View {
             IconBadge(systemImage: "stethoscope")
             VStack(spacing: Theme.Space.xs) {
                 Text("Diagnose is a subscriber feature").font(.title3.weight(.semibold))
-                Text("Subscribe to get a triage plan for any ailing plant — plus unlimited identify, care reminders, and your blooming buddies.")
+                Text("Subscribe to get a triage plan for any ailing plant, plus unlimited identify, care reminders, and your blooming buddies.")
                     .font(.subheadline).multilineTextAlignment(.center)
                     .foregroundStyle(Theme.Color.textSecondary)
             }

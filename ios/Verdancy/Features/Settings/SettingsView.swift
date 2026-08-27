@@ -67,7 +67,7 @@ struct SettingsView: View {
                         item: Invite.url,
                         message: Text(Invite.message(code: app.referralCode))
                     ) {
-                        Label("Invite a friend — a tree for both of you", systemImage: "gift.fill")
+                        Label("Invite a friend and grow a tree for both of you", systemImage: "gift.fill")
                     }
                     if let code = app.referralCode {
                         LabeledContent("Your invite code", value: code)
@@ -142,7 +142,7 @@ struct SettingsView: View {
     private var forestLabel: String {
         let count = app.garden.trees.plantings.count
         guard count > 0 else { return "Your forest" }
-        return "Your forest — \(count) planted"
+        return "Your forest: \(count) planted"
     }
 
     private func redeemInvite() async {
@@ -152,7 +152,7 @@ struct SettingsView: View {
         do {
             if !AppConfig.useMockAuth { try await app.api.redeemInvite(code: code) }
             redeemSucceeded = true
-            redeemMessage = "Invite applied — a tree gets planted for you both when you subscribe. 🌳"
+            redeemMessage = "Invite applied. A tree gets planted for you both when you subscribe. 🌳"
             inviteCodeInput = ""
             Haptics.success()
         } catch {

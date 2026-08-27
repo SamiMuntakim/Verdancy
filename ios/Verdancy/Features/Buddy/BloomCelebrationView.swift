@@ -46,7 +46,7 @@ struct BloomCelebrationView: View {
                     Text(bloomed ? "Your buddy bloomed! 🌸" : "Something's growing…")
                         .font(.title2.weight(.bold))
                         .multilineTextAlignment(.center)
-                    Text("Welcome to Verdancy. Your plants — and your first 10 real trees — start now.")
+                    Text("Welcome to Verdancy. Your plants and your first 10 real trees start now.")
                         .font(.subheadline)
                         .multilineTextAlignment(.center)
                         .foregroundStyle(Theme.Color.textSecondary)

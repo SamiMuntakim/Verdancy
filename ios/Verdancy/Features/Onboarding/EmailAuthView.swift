@@ -157,7 +157,7 @@ struct EmailAuthView: View {
                 dismiss()
             } catch EmailAuthError.needsConfirmation {
                 try? await EmailAuth.resendCode(email: cleanEmail)
-                info = "Please verify your email — we sent you a code."
+                info = "Please verify your email. We sent you a code."
                 step = .confirmCode
             } catch EmailAuthError.message(let message) {
                 error = message

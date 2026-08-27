@@ -126,7 +126,7 @@ private struct FirstScanView: View {
             messageCard(
                 icon: "leaf.fill",
                 title: "Let's pick this up in a moment",
-                message: "Your garden's ready — you can scan your first plant from the Scan tab.",
+                message: "Your garden's ready. You can scan your first plant from the Scan tab.",
                 primary: ("Continue", { app.completeFirstRun() })
             )
         case let .error(message):
@@ -341,7 +341,7 @@ struct SeedlingRevealView: View {
                     Text("A seedling is forming for \(plant.displayName) 🌱")
                         .font(.title2.weight(.bold))
                         .multilineTextAlignment(.center)
-                    Text("Your plant just grew its own little buddy. Start your free trial to watch it bloom — and we'll plant your first 10 real trees.")
+                    Text("Your plant just grew its own little buddy. Start your free trial to watch it bloom, and we'll plant your first 10 real trees.")
                         .font(.subheadline)
                         .multilineTextAlignment(.center)
                         .foregroundStyle(Theme.Color.textSecondary)

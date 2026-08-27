@@ -169,7 +169,7 @@ struct PersonalizeCareView: View {
             showPaywall = true
         } catch APIError.rateLimited {
             phase = .form
-            error = "You've generated a lot today — try again tomorrow."
+            error = "You've generated a lot today. Try again tomorrow."
         } catch {
             phase = .form
             self.error = (error as? APIError)?.userMessage ?? "Couldn't create the plan. Try again."

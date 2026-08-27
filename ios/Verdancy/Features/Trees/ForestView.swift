@@ -35,7 +35,7 @@ struct ForestView: View {
                     }
                 } footer: {
                     Text("Planted with \(AppConfig.plantingPartner). Every certificate is "
-                         + "issued by them for your specific tree — and Collect adds it to "
+                         + "issued by them for your specific tree, and Collect adds it to "
                          + "your own free \(AppConfig.plantingPartner) forest.")
                 }
             }
@@ -221,7 +221,7 @@ private struct ForestEmptyState: View {
                 .foregroundStyle(Theme.Color.textPrimary)
             Text(pledged > 0
                  ? "Certificates appear here as each tree goes in the ground."
-                 : "Keep your care streak going — every streak plants a real tree.")
+                 : "Keep your care streak going. Every streak plants a real tree.")
                 .font(.subheadline)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(Theme.Color.textSecondary)
