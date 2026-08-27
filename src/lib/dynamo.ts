@@ -25,6 +25,7 @@ import {
   GLOBAL_PK,
   treeBudgetSk,
   treeSk,
+  careCreditSk,
 } from './keys';
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
@@ -301,8 +302,41 @@ function wasDue(previous: Record<string, unknown> | undefined, type: string): bo
   const cadence = Number(task?.cadence_days);
   if (!Number.isFinite(cadence) || cadence <= 0) return false; // unscheduled
   const last = typeof task?.last_done_at === 'string' ? Date.parse(task.last_done_at) : NaN;
-  if (!Number.isFinite(last)) return true; // never done → the first one counts
+  // A task that has never been done is NOT "on time" — there was no schedule to
+  // keep yet. Counting it would make a fresh plant worth a free credit, and
+  // plants are free to create (no AI quota on /uploads or /plants), so that was
+  // a mint: create plant, set a cadence, tap done, repeat.
+  if (!Number.isFinite(last)) return false;
   return Date.now() >= last + cadence * 86_400_000;
+}
+
+/**
+ * Daily ceiling on how many on-time completions can count toward a tree.
+ *
+ * Cadence alone doesn't bound this: a user can hold any number of plants, set
+ * each to a one-day cadence, and harvest one credit per plant per day. This caps
+ * the whole account regardless of collection size, so milestones stay paced in
+ * real days (500 on-time tasks is months, not an afternoon) while sitting well
+ * above what a genuine gardener does in a day. Date-keyed with a TTL, like the
+ * AI quota. Returns false once the day is spent.
+ */
+export async function reserveDailyCareCredit(sub: string, maxPerDay: number): Promise<boolean> {
+  try {
+    await ddb.send(
+      new UpdateCommand({
+        TableName: table(),
+        Key: { PK: userPk(sub), SK: careCreditSk(todayUtc()) },
+        UpdateExpression: 'SET expires_at = if_not_exists(expires_at, :ttl) ADD #count :one',
+        ConditionExpression: 'attribute_not_exists(#count) OR #count < :limit',
+        ExpressionAttributeNames: { '#count': 'count' },
+        ExpressionAttributeValues: { ':one': 1, ':ttl': quotaTtlEpoch(), ':limit': maxPerDay },
+      }),
+    );
+    return true;
+  } catch (err) {
+    if (isConditionalFailure(err)) return false;
+    throw err;
+  }
 }
 
 /**

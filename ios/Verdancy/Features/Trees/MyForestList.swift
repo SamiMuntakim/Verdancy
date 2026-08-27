@@ -52,17 +52,6 @@ struct MyForestList: View {
             }
 
             Section {
-                Link(destination: AppConfig.plantTreeURL) {
-                    Label {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Plant more trees").font(.subheadline.weight(.semibold))
-                            Text("Buy trees directly from \(AppConfig.plantingPartner)")
-                                .font(.caption).foregroundStyle(Theme.Color.textSecondary)
-                        }
-                    } icon: {
-                        Image(systemName: "leaf.circle.fill").foregroundStyle(Theme.Color.leaf)
-                    }
-                }
                 Link("View the public tree counter", destination: AppConfig.treeCounterURL)
             }
         }

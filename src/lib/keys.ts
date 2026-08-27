@@ -32,6 +32,8 @@ export const treeBudgetSk = (day: string): string => `TREEBUDGET#${day}`;
 // Per-user record of an actually-planted tree (holds the Tree-Nation collect/
 // certificate URLs for the in-app reward + reconciliation).
 export const treeSk = (treeId: string | number): string => `TREE#${treeId}`;
+// Daily ceiling on on-time care completions that count toward a tree.
+export const careCreditSk = (day: string): string => `CARECREDIT#${day}`;
 
 /** URL-safe slug for the species, used in the sprite S3 key. */
 export function speciesSlug(species: string): string {

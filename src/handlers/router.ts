@@ -26,6 +26,7 @@ import {
   deleteAllUserItems,
   recordCheckin,
   bumpOnTimeCare,
+  reserveDailyCareCredit,
   listTreeRecords,
   getTrees,
   getBuddiesForSpecies,
@@ -222,6 +223,8 @@ async function handleListPlants(sub: string) {
  * the task was due, so cadence caps how fast the counter can move.
  */
 const CARE_TREE_MILESTONES = [25, 100, 250, 500];
+/** Most on-time completions that can count in one UTC day (see the reservation). */
+const DAILY_CARE_CREDITS = () => intEnv('DAILY_CARE_CREDITS', 8);
 
 async function handleCare(sub: string, event: APIGatewayProxyEventV2WithJWTAuthorizer) {
   const plantId = pathParam(event, 'plantId');
@@ -233,6 +236,11 @@ async function handleCare(sub: string, event: APIGatewayProxyEventV2WithJWTAutho
   const { onTime } = await touchCare(sub, plantId, body.type);
   if (!onTime) return json(200, { ok: true, on_time: false });
 
+  // Cadence limits how often ONE plant comes due, but not how many plants an
+  // account holds — so the day's allowance is what actually paces this.
+  if (!(await reserveDailyCareCredit(sub, DAILY_CARE_CREDITS()))) {
+    return json(200, { ok: true, on_time: true, counted: false });
+  }
   const total = await bumpOnTimeCare(sub);
   let treeGranted = false;
   if (CARE_TREE_MILESTONES.includes(total)) {
@@ -246,7 +254,13 @@ async function handleCare(sub: string, event: APIGatewayProxyEventV2WithJWTAutho
       message: 'Thank you for growing with Verdancy 🌱',
     });
   }
-  return json(200, { ok: true, on_time: true, care_on_time: total, tree_granted: treeGranted });
+  return json(200, {
+    ok: true,
+    on_time: true,
+    counted: true,
+    care_on_time: total,
+    tree_granted: treeGranted,
+  });
 }
 
 async function handleDeletePlant(sub: string, event: APIGatewayProxyEventV2WithJWTAuthorizer) {

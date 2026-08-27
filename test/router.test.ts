@@ -566,6 +566,7 @@ describe('on-time care milestone (interactive, unfarmable)', () => {
     ddbMock
       .on(UpdateCommand)
       .resolvesOnce(plantWith(3, '2020-01-01T00:00:00.000Z')) // the care write
+      .resolvesOnce({}) // the daily credit reservation
       .resolves({ Attributes: { care_on_time: 7 } }); // the counter bump
     const res = await run(careEvent);
     expect(res.statusCode).toBe(200);
@@ -587,12 +588,23 @@ describe('on-time care milestone (interactive, unfarmable)', () => {
     expect(bodyOf(res).on_time).toBe(false);
   });
 
-  test('the first completion of a scheduled task counts', async () => {
+  // Plants are free to create (no AI quota on /uploads or /plants), so counting
+  // a never-watered task would let anyone mint credits: new plant, set cadence,
+  // tap done, repeat.
+  test('a never-completed task does NOT count', async () => {
+    ddbMock.on(UpdateCommand).resolves(plantWith(7, null));
+    const res = await run(careEvent);
+    expect(bodyOf(res).on_time).toBe(false);
+  });
+
+  test("once the day's allowance is spent, further completions stop counting", async () => {
     ddbMock
       .on(UpdateCommand)
-      .resolvesOnce(plantWith(7, null))
-      .resolves({ Attributes: { care_on_time: 1 } });
+      .resolvesOnce(plantWith(3, '2020-01-01T00:00:00.000Z')) // care write: due
+      .rejectsOnce(condFail()); // the daily credit reservation is exhausted
     const res = await run(careEvent);
     expect(bodyOf(res).on_time).toBe(true);
+    expect(bodyOf(res).counted).toBe(false);
+    expect(bodyOf(res).care_on_time).toBeUndefined();
   });
 });
