@@ -52,15 +52,12 @@ struct SettingsView: View {
                 }
 
                 Section("Your impact") {
-                    LabeledContent("Trees pledged", value: "\(totalTrees)")
+                    LabeledContent("Trees funded", value: "\(totalTrees)")
                     LabeledContent("Care streak", value: streakLabel)
                     NavigationLink {
                         ForestView()
                     } label: {
                         Label(forestLabel, systemImage: "tree.fill")
-                    }
-                    ForEach(app.garden.trees.milestones, id: \.self) { milestone in
-                        Label(milestoneLabel(milestone), systemImage: "checkmark.seal.fill")
                     }
                     Link("View the public tree counter", destination: AppConfig.treeCounterURL)
                 }
@@ -146,11 +143,6 @@ struct SettingsView: View {
         let count = app.garden.trees.plantings.count
         guard count > 0 else { return "Your forest" }
         return "Your forest — \(count) planted"
-    }
-
-    private func milestoneLabel(_ id: String) -> String {
-        if id.hasPrefix("referral_") { return id == "referral_joined" ? "Joined Via Invite" : "Friend Invited" }
-        return id.replacingOccurrences(of: "_", with: " ").capitalized
     }
 
     private func redeemInvite() async {

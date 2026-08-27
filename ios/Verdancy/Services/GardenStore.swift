@@ -67,8 +67,17 @@ final class GardenStore {
         onChanged?(plants)
     }
 
-    /// Replace the tree status after a grant (milestone or streak check-in) and
-    /// persist it, so the forest survives a cold start offline.
+    /// Drop everything on sign-out / session expiry — the garden belongs to the
+    /// account, so it must not bleed into the next person to sign in on this device.
+    func reset() {
+        plants = []
+        trees = .empty
+        didLoadOnce = false
+        SnapshotStore.clear()
+    }
+
+    /// Replace the tree status after a grant (the streak check-in) and persist it,
+    /// so the forest survives a cold start offline.
     func applyTrees(_ status: TreeStatus) {
         trees = status
         SnapshotStore.save(GardenSnapshot(plants: plants, trees: trees))

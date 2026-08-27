@@ -374,40 +374,14 @@ describe('POST /plants/{plantId}/care-plan — subscriber-gated AI, no credits f
   });
 });
 
-describe('POST /milestones — subscriber-gated, one atomic conditional write', () => {
-  test('subscriber first submit increments trees once', async () => {
-    ddbMock.on(GetCommand).resolves({ Item: { entitlement_active: true } });
-    ddbMock.on(UpdateCommand).resolves({
-      Attributes: { trees_pledged: 1, milestones: new Set(['first-plant']) },
-    });
+describe('POST /milestones — removed', () => {
+  // Count-based milestones pledged a tree without ever funding one, so "pledged"
+  // and the real forest could never agree. Trees now come only from the annual
+  // grant, referrals, and streaks — each of which actually plants.
+  test('the route is gone → 404, and nothing is written', async () => {
     const res = await run({ routeKey: 'POST /milestones', body: { milestoneId: 'first-plant' } });
-    expect(res.statusCode).toBe(200);
-    expect(bodyOf(res).trees_pledged).toBe(1);
-    expect(ddbMock.commandCalls(UpdateCommand)[0].args[0].input.ConditionExpression).toBe(
-      'NOT contains(milestones, :mid)',
-    );
-  });
-
-  test('non-subscriber → 403, nothing recorded (PRD §4.7)', async () => {
-    ddbMock.on(GetCommand).resolves({ Item: { entitlement_active: false } });
-    const res = await run({ routeKey: 'POST /milestones', body: { milestoneId: 'first-plant' } });
-    expect(res.statusCode).toBe(403);
+    expect(res.statusCode).toBe(404);
     expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(0);
-  });
-
-  test('duplicate submit is idempotent (+1 once)', async () => {
-    ddbMock.on(GetCommand).resolves({
-      Item: { entitlement_active: true, trees_pledged: 1, milestones: new Set(['first-plant']) },
-    });
-    ddbMock.on(UpdateCommand).rejects(condFail());
-    const res = await run({ routeKey: 'POST /milestones', body: { milestoneId: 'first-plant' } });
-    expect(res.statusCode).toBe(200);
-    expect(bodyOf(res).trees_pledged).toBe(1);
-  });
-
-  test('400 when milestoneId missing', async () => {
-    const res = await run({ routeKey: 'POST /milestones', body: {} });
-    expect(res.statusCode).toBe(400);
   });
 });
 

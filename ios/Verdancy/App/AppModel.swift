@@ -66,7 +66,6 @@ final class AppModel {
             Task {
                 if isFirstPlant { await self.notifications.requestAuthorizationIfNeeded() }
                 await self.notifications.reschedule(for: plants, streak: self.streak.current)
-                await self.reportMilestonesIfNeeded()
             }
         }
     }
@@ -95,38 +94,22 @@ final class AppModel {
         WidgetCenter.shared.reloadAllTimelines()
     }
 
-    private let reportedKey = "verdancy.reportedMilestones"
-    private var reportedMilestones: Set<String> {
-        get { Set(UserDefaults.standard.stringArray(forKey: reportedKey) ?? []) }
-        set { UserDefaults.standard.set(Array(newValue), forKey: reportedKey) }
-    }
+    // MARK: - Session
 
-    /// Count-based milestones (iOS-PRD §10): first/fifth/tenth plant. Subscriber-only
-    /// (§7); reported idempotently — the server dedupes.
-    func reportMilestonesIfNeeded() async {
-        guard isSubscribed else { return }
-        let count = garden.plants.count
-        var reached: [String] = []
-        if count >= 1 { reached.append("first_plant") }
-        if count >= 5 { reached.append("fifth_plant") }
-        if count >= 10 { reached.append("tenth_plant") }
-
-        var reported = reportedMilestones
-        for id in reached where !reported.contains(id) {
-            if AppConfig.useMockAuth {
-                garden.trees = TreeStatus(
-                    treesPledged: garden.trees.treesPledged + 1,
-                    milestones: garden.trees.milestones + [id])
-            } else {
-                guard let status = try? await api.recordMilestone(id) else { continue }
-                garden.applyTrees(status)
-            }
-            reported.insert(id)
-            reportedMilestones = reported
-            treeCelebration = TreeCelebration(total: totalTrees, streakDays: nil)
-            Analytics.log("milestone_earned", ["id": id])
-            Haptics.celebrate()
-        }
+    /// Return to the sign-in gate when the session is gone.
+    ///
+    /// A refresh token that has expired or been revoked can't be recovered, and
+    /// `APIClient` needs a token *before* it sends anything — so without this the
+    /// app sits on the signed-in UI making no network calls at all, showing stale
+    /// plants whose presigned image URLs have long since expired. `NativeAuthService`
+    /// drops the dead tokens, so this just reflects that in the UI. Transient
+    /// failures keep their tokens and are left alone.
+    private func enforceSession() async {
+        guard phase == .signedIn, !AppConfig.useMockAuth else { return }
+        guard await auth.isSignedIn() == false else { return }
+        garden.reset()
+        streak.reset()
+        phase = .signedOut
     }
 
     // MARK: - Daily check-in (POST /checkin)
@@ -154,7 +137,10 @@ final class AppModel {
         checkinInFlight = true
         defer { checkinInFlight = false }
 
-        guard let result = try? await api.checkin() else { return }
+        guard let result = try? await api.checkin() else {
+            await enforceSession() // a dead session surfaces here on every foreground
+            return
+        }
         lastCheckinDay = today
         streak.applyServer(result.streak)
         publishWidgetSummary()
@@ -177,6 +163,10 @@ final class AppModel {
             phase = .signedIn
             if let sub = await auth.userId() { await entitlement.login(userId: sub) }
             await garden.refresh()
+            // `refresh()` swallows its errors, so an expired session would otherwise
+            // leave us signed-in-looking with stale data and dead image URLs.
+            await enforceSession()
+            guard phase == .signedIn else { return }
             await fetchReferralCode()
             await checkIn()
         } else {
@@ -247,7 +237,9 @@ final class AppModel {
             // opens into their plant's own buddy (gated until here to save credits).
             garden.ensureBuddiesForAll()
             pendingBloom = true
-            await reportMilestonesIfNeeded() // a subscriber with plants earns first_plant now
+            // The annual grant's 10 trees arrive server-side via the RevenueCat
+            // webhook, so re-read rather than assuming anything locally.
+            if let status = try? await api.trees() { garden.applyTrees(status) }
         }
     }
 
@@ -271,10 +263,8 @@ final class AppModel {
         WidgetShared.clear()
         WidgetCenter.shared.reloadAllTimelines()
         notifications.cancelAll()
-        UserDefaults.standard.removeObject(forKey: reportedKey)
         streak.reset()
-        garden.plants = []
-        garden.trees = .empty
+        garden.reset()
         knewPlants = false
         lastCheckinDay = nil
         treeCelebration = nil

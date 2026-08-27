@@ -24,7 +24,6 @@ import {
   putPhoto,
   deletePlantAndPhotos,
   deleteAllUserItems,
-  recordMilestone,
   recordCheckin,
   listTreeRecords,
   getTrees,
@@ -275,17 +274,6 @@ async function handleListPhotos(sub: string, event: APIGatewayProxyEventV2WithJW
   return json(200, { photos: items });
 }
 
-async function handleMilestone(sub: string, event: APIGatewayProxyEventV2WithJWTAuthorizer) {
-  const body = parseJsonBody<{ milestoneId?: string }>(event);
-  const milestoneId = asString(body.milestoneId);
-  if (!milestoneId) throw new ApiError(400, 'milestoneId is required');
-  // Milestone trees are a paid-subscriber benefit (PRD §4.7) — gate server-side.
-  const meta = await getMetadata(sub);
-  if (meta?.blocked) throw new ApiError(403, 'Account is blocked');
-  if (!meta?.entitlement_active) throw new ApiError(403, 'Milestone trees require a subscription');
-  return json(200, await recordMilestone(sub, milestoneId));
-}
-
 async function handleGetTrees(sub: string) {
   const [trees, planted] = await Promise.all([getTrees(sub), listTreeRecords(sub)]);
   return json(200, {
@@ -415,8 +403,6 @@ export const handler = async (
         return await handleAddPhoto(sub, event);
       case 'GET /plants/{plantId}/photos':
         return await handleListPhotos(sub, event);
-      case 'POST /milestones':
-        return await handleMilestone(sub, event);
       case 'POST /checkin':
         return await handleCheckin(sub);
       case 'GET /me/trees':

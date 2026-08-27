@@ -97,11 +97,6 @@ final class APIClient {
                                        body: encode(AddPhotoRequest(imageRef: imageRef, caption: caption))))
     }
 
-    func recordMilestone(_ id: String) async throws -> TreeStatus {
-        try await send(Endpoint("POST", "/milestones", body: encode(MilestoneRequest(milestoneId: id))),
-                       as: TreeStatus.self)
-    }
-
     func trees() async throws -> TreeStatus {
         try await send(Endpoint("GET", "/me/trees"), as: TreeStatus.self)
     }

@@ -21,7 +21,7 @@ enum CognitoAuthAPI {
         ])
 
         let (data, response) = try await URLSession.shared.data(for: request)
-        try ensureOK(response)
+        try ensureOK(response, data: data)
 
         struct Body: Decodable {
             let id_token: String
@@ -54,7 +54,7 @@ enum CognitoAuthAPI {
         ])
 
         let (data, response) = try await URLSession.shared.data(for: request)
-        try ensureOK(response)
+        try ensureOK(response, data: data)
 
         struct Body: Decodable {
             struct Result: Decodable {
@@ -80,11 +80,28 @@ enum CognitoAuthAPI {
         }
     }
 
-    private static func ensureOK(_ response: URLResponse) throws {
+    /// Cognito reports a dead session as **HTTP 400 + `NotAuthorizedException`**, not
+    /// a 401 — so the status alone can't tell "your refresh token expired" apart from
+    /// a transient outage. Read the error type out of the body: only that case means
+    /// the session is unrecoverable and the user must sign in again; everything else
+    /// stays a retryable failure that must NOT sign anyone out.
+    private static func ensureOK(_ response: URLResponse, data: Data) throws {
         guard let http = response as? HTTPURLResponse else {
             throw APIError.network("No response from the server.")
         }
+        if (200..<300).contains(http.statusCode) { return }
         if http.statusCode == 401 || http.statusCode == 403 { throw APIError.unauthorized }
-        guard (200..<300).contains(http.statusCode) else { throw APIError.server(http.statusCode) }
+        if let type = errorType(data), type.contains("NotAuthorized") || type.contains("UserNotFound") {
+            throw APIError.unauthorized
+        }
+        throw APIError.server(http.statusCode)
+    }
+
+    /// The `__type` field of a Cognito error body (e.g. `NotAuthorizedException`).
+    private static func errorType(_ data: Data) -> String? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        return json["__type"] as? String
     }
 }

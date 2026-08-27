@@ -436,45 +436,9 @@ function toMilestoneArray(value: Set<string> | string[] | undefined): string[] {
 }
 
 /**
- * ONE atomic conditional UpdateItem (hard invariant #5): add the milestone id to
- * the set and increment `trees_pledged`, only if the id isn't already present.
- * A duplicate fails the condition → the entire write is rejected, so the counter
- * increments exactly once even under concurrent double-submits.
- */
-export async function recordMilestone(sub: string, milestoneId: string): Promise<TreesView> {
-  try {
-    const res = await ddb.send(
-      new UpdateCommand({
-        TableName: table(),
-        Key: { PK: userPk(sub), SK: META_SK },
-        UpdateExpression: 'ADD milestones :midSet, trees_pledged :one',
-        ConditionExpression: 'NOT contains(milestones, :mid)',
-        ExpressionAttributeValues: {
-          ':midSet': new Set([milestoneId]),
-          ':mid': milestoneId,
-          ':one': 1,
-        },
-        ReturnValues: 'ALL_NEW',
-      }),
-    );
-    const attrs = res.Attributes as UserMetadata | undefined;
-    return {
-      trees_pledged: (attrs?.trees_pledged as number) ?? 0,
-      milestones: toMilestoneArray(attrs?.milestones),
-    };
-  } catch (err) {
-    if (isConditionalFailure(err)) {
-      // Already counted — idempotent. Return the current view.
-      return getTrees(sub);
-    }
-    throw err;
-  }
-}
-
-/**
- * Same single atomic conditional UpdateItem as `recordMilestone` (invariant #5),
- * but reports whether THIS call was the one that claimed the milestone, and can
- * credit more than one tree. Only the winning caller plants — that's what makes
+ * The single atomic conditional UpdateItem of invariant #5, which also reports
+ * whether THIS call was the one that claimed the milestone and can credit more
+ * than one tree. Only the winning caller plants — that's what makes
  * spending exactly-once under concurrent/retried triggers.
  */
 export async function recordMilestoneIfNew(

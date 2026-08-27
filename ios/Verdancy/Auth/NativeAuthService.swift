@@ -98,6 +98,15 @@ final class NativeAuthService: AuthService {
             return refreshed
         } catch {
             refreshTask = nil
+            // An unrecoverable session (refresh token expired or revoked) must not
+            // linger in the Keychain: `isSignedIn()` would keep reporting true and
+            // every API call would fail before it was even sent, leaving the app
+            // showing stale data with no way back. Drop it so the UI can gate on
+            // sign-in. Transient failures (network, Cognito 5xx) keep the tokens.
+            if case APIError.unauthorized = error {
+                tokens = nil
+                TokenStore.clear()
+            }
             throw error
         }
     }

@@ -259,9 +259,6 @@ struct AddPhotoRequest: Encodable {
     }
 }
 
-struct MilestoneRequest: Encodable {
-    let milestoneId: String
-}
 
 struct BuddyRequest: Encodable {
     let species: String
