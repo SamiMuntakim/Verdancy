@@ -151,6 +151,61 @@ export interface PlantedTree {
   species_name?: string;
   project_id?: number;
   project_name?: string;
+  /** The project's public field-updates page (photos from the ground). */
+  project_url?: string;
+  country?: string;
+  species_life_time_CO2?: number;
+  // Enriched from the public species endpoint after planting (best-effort):
+  /** Friendly species name, e.g. "Grey Mangrove" for Avicennia marina. */
+  common_name?: string;
+  /** Photo of the species, from Tree-Nation's public species detail. */
+  species_image?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Species enrichment — the public species endpoint (no auth) carries a real
+// photo and a friendly common name. Purely cosmetic, so every failure here is
+// swallowed: a tree with no picture is still a tree.
+// ---------------------------------------------------------------------------
+
+interface SpeciesDetail {
+  image?: string;
+  common_name?: string;
+}
+
+const speciesDetailCache = new Map<number, SpeciesDetail>();
+
+async function fetchSpeciesDetail(id: number): Promise<SpeciesDetail> {
+  const cached = speciesDetailCache.get(id);
+  if (cached) return cached;
+  try {
+    const res = await fetch(`${API_BASE}/api/species/${id}`);
+    if (!res.ok) return {};
+    const data = (await res.json()) as { image?: unknown; common_names?: unknown };
+    const detail: SpeciesDetail = {
+      image: typeof data.image === 'string' ? data.image : undefined,
+      // `common_names` can be comma-separated ("Grey Mangrove, White Mangrove").
+      common_name:
+        typeof data.common_names === 'string' && data.common_names.trim()
+          ? data.common_names.split(',')[0].trim()
+          : undefined,
+    };
+    speciesDetailCache.set(id, detail);
+    return detail;
+  } catch {
+    return {};
+  }
+}
+
+/** Attach species photo + common name to each planted tree (best-effort). */
+async function enrichTrees(trees: PlantedTree[]): Promise<PlantedTree[]> {
+  const ids = [...new Set(trees.map((t) => t.species_id).filter((id): id is number => !!id))];
+  const details = new Map<number, SpeciesDetail>();
+  await Promise.all(ids.map(async (id) => details.set(id, await fetchSpeciesDetail(id))));
+  return trees.map((t) => {
+    const d = t.species_id ? details.get(t.species_id) : undefined;
+    return d ? { ...t, species_image: d.image, common_name: d.common_name } : t;
+  });
 }
 
 export interface PlantResult {
@@ -233,11 +288,12 @@ export async function plantTrees(opts: {
     // actually exists, instead of repeating the same doomed request for an hour.
     projectCache = undefined;
   }
-  return { trees, payment_id: data.payment_id };
+  return { trees: await enrichTrees(trees), payment_id: data.payment_id };
 }
 
 /** Test-only: reset caches between unit tests. */
 export function _resetTreeNationCachesForTest(): void {
   cachedToken = undefined;
   projectCache = undefined;
+  speciesDetailCache.clear();
 }

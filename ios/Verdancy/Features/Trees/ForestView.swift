@@ -1,30 +1,42 @@
 import SwiftUI
 
-/// "Your forest" (iOS-PRD §10): the real trees planted on the user's behalf, each
-/// with its own certificate. The pledge count is a promise; the certificate is the
-/// proof — so every planting leads with its certificate link.
+/// "Your forest" (iOS-PRD §10): the real trees planted on the user's behalf.
+/// The pledge count is a promise; this screen is the proof — every tree carries
+/// its species photo, where it grows, its lifetime CO₂, and three third-party
+/// links: the per-tree certificate, the collect page (which claims the tree into
+/// the user's own free Tree-Nation forest), and the project's field updates with
+/// photos from the ground. All of it lives on the partner's site, not ours —
+/// that's what makes it verifiable rather than a number we typed.
 struct ForestView: View {
     @Environment(AppModel.self) private var app
 
-    private var plantings: [PlantedTree] { app.garden.trees.plantings }
+    private var trees: TreeStatus { app.garden.trees }
+    private var plantings: [PlantedTree] { trees.plantings }
 
     var body: some View {
         List {
             if plantings.isEmpty {
                 Section {
-                    ForestEmptyState(pledged: app.garden.trees.treesPledged)
+                    ForestEmptyState(pledged: trees.treesPledged)
                 }
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
             } else {
                 Section {
+                    ImpactHeader(trees: trees)
+                }
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+                .listRowInsets(EdgeInsets())
+
+                Section {
                     ForEach(plantings) { tree in
                         PlantedTreeRow(tree: tree)
                     }
-                } header: {
-                    Text("\(plantings.count) real \(plantings.count == 1 ? "tree" : "trees") planted")
                 } footer: {
-                    Text("Planted with \(AppConfig.plantingPartner). Each certificate is issued for your tree.")
+                    Text("Planted with \(AppConfig.plantingPartner). Every certificate is "
+                         + "issued by them for your specific tree — and Collect adds it to "
+                         + "your own free \(AppConfig.plantingPartner) forest.")
                 }
             }
 
@@ -42,21 +54,70 @@ struct ForestView: View {
     }
 }
 
+/// Headline impact: tree count, combined lifetime CO₂, and where they grow.
+private struct ImpactHeader: View {
+    let trees: TreeStatus
+
+    var body: some View {
+        HStack(spacing: Theme.Space.m) {
+            stat(value: "\(trees.plantings.count)",
+                 label: trees.plantings.count == 1 ? "real tree" : "real trees",
+                 icon: "tree.fill")
+            if trees.lifetimeCo2Kg > 0 {
+                stat(value: "\(trees.lifetimeCo2Kg) kg",
+                     label: "CO₂ absorbed over their lives",
+                     icon: "carbon.dioxide.cloud.fill")
+            }
+            if let place = trees.countries.first {
+                stat(value: place,
+                     label: trees.countries.count > 1
+                        ? "+ \(trees.countries.count - 1) more"
+                        : "where they grow",
+                     icon: "globe.europe.africa.fill")
+            }
+        }
+        .padding(.vertical, Theme.Space.s)
+    }
+
+    private func stat(value: String, label: String, icon: String) -> some View {
+        VStack(spacing: 4) {
+            Image(systemName: icon)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(Theme.Color.leaf)
+            Text(value)
+                .font(.subheadline.weight(.bold))
+                .foregroundStyle(Theme.Color.textPrimary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(Theme.Color.textSecondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, Theme.Space.m)
+        .padding(.horizontal, Theme.Space.xs)
+        .background(Theme.Color.surface, in: RoundedRectangle(cornerRadius: Theme.Radius.chip))
+    }
+}
+
 private struct PlantedTreeRow: View {
     let tree: PlantedTree
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.s) {
             HStack(spacing: Theme.Space.m) {
-                Image(systemName: "tree.fill")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(Theme.Color.leaf)
-                    .frame(width: 30, height: 30)
-                    .background(Theme.Color.leaf.opacity(0.12), in: Circle())
+                speciesThumbnail
                 VStack(alignment: .leading, spacing: 2) {
                     Text(tree.displaySpecies)
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(Theme.Color.textPrimary)
+                    if let latin = tree.displayLatin {
+                        Text(latin)
+                            .font(.caption)
+                            .italic()
+                            .foregroundStyle(Theme.Color.textSecondary)
+                    }
                     if let subtitle {
                         Text(subtitle)
                             .font(.caption)
@@ -65,10 +126,13 @@ private struct PlantedTreeRow: View {
                 }
             }
 
-            if let reason = tree.displayReason {
-                Text("Earned by: \(reason)")
-                    .font(.caption)
-                    .foregroundStyle(Theme.Color.textSecondary)
+            HStack(spacing: Theme.Space.s) {
+                if let co2 = tree.lifeTimeCo2, co2 > 0 {
+                    chip("~\(co2) kg CO₂", icon: "leaf.fill")
+                }
+                if let reason = tree.displayReason {
+                    chip(reason, icon: "sparkles")
+                }
             }
 
             HStack(spacing: Theme.Space.l) {
@@ -84,19 +148,66 @@ private struct PlantedTreeRow: View {
                             .font(.caption.weight(.semibold))
                     }
                 }
+                if let url = tree.projectURL {
+                    Link(destination: url) {
+                        Label("Field updates", systemImage: "photo.on.rectangle.angled")
+                            .font(.caption.weight(.semibold))
+                    }
+                }
             }
         }
         .padding(.vertical, Theme.Space.xs)
     }
 
-    /// Project + planting date, whichever the partner supplied.
-    private var subtitle: String? {
-        var parts: [String] = []
-        if let project = tree.projectName, !project.isEmpty { parts.append(project) }
-        if let date = tree.plantedDate {
-            parts.append(date.formatted(.dateTime.month(.abbreviated).day().year()))
+    /// Real photo of the species when the partner supplied one; leaf glyph otherwise.
+    @ViewBuilder
+    private var speciesThumbnail: some View {
+        if let url = tree.speciesImageURL {
+            AsyncImage(url: url) { phase in
+                if case .success(let image) = phase {
+                    image.resizable().scaledToFill()
+                } else {
+                    thumbnailFallback
+                }
+            }
+            .frame(width: 44, height: 44)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.chip))
+        } else {
+            thumbnailFallback
+                .frame(width: 44, height: 44)
         }
-        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    private var thumbnailFallback: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: Theme.Radius.chip)
+                .fill(Theme.Color.leaf.opacity(0.12))
+            Image(systemName: "tree.fill")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(Theme.Color.leaf)
+        }
+    }
+
+    private func chip(_ text: String, icon: String) -> some View {
+        Label(text, systemImage: icon)
+            .font(.caption2.weight(.medium))
+            .foregroundStyle(Theme.Color.textSecondary)
+            .padding(.horizontal, Theme.Space.s)
+            .padding(.vertical, 3)
+            .background(Theme.Color.leaf.opacity(0.08), in: Capsule())
+    }
+
+    /// Where and when: "Mkussu Forest, Tanzania · Aug 27, 2026".
+    private var subtitle: String? {
+        var place = [tree.projectName, tree.country]
+            .compactMap { $0 }
+            .filter { !$0.isEmpty }
+            .joined(separator: ", ")
+        if let date = tree.plantedDate {
+            let day = date.formatted(.dateTime.month(.abbreviated).day().year())
+            place = place.isEmpty ? day : "\(place) · \(day)"
+        }
+        return place.isEmpty ? nil : place
     }
 }
 

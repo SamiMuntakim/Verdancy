@@ -24,20 +24,56 @@ struct TreeStatus: Codable, Hashable {
         (planted ?? []).sorted { ($0.plantedDate ?? .distantPast) > ($1.plantedDate ?? .distantPast) }
     }
 
+    /// Combined lifetime CO₂ absorption of every planted tree, in kg (0 = unknown).
+    var lifetimeCo2Kg: Int { plantings.compactMap(\.lifeTimeCo2).reduce(0, +) }
+
+    /// Distinct planting countries, in planting order ("Tanzania", …).
+    var countries: [String] {
+        var seen = Set<String>()
+        return plantings.compactMap { tree in
+            guard let c = tree.country, !c.isEmpty, seen.insert(c).inserted else { return nil }
+            return c
+        }
+    }
+
     static let empty = TreeStatus(treesPledged: 0, milestones: [])
 }
 
 /// One real tree from `GET /me/trees` → `planted`. `certificateUrl` is the
 /// user-visible proof of an actual planting (iOS-PRD §10: provable, never vague),
-/// so it's the link the forest screen leads with. Every field is optional — a
-/// planting still renders if the partner hasn't filled one in.
+/// `collectUrl` lets the user claim the tree into their own Tree-Nation forest,
+/// and the species photo / country / project link / lifetime CO2 make it feel
+/// like a tree rather than a counter. Every field is optional — a planting still
+/// renders if the partner hasn't filled one in.
 struct PlantedTree: Codable, Hashable, Identifiable {
     let collectUrl: String?
     let certificateUrl: String?
     let speciesName: String?
+    let commonName: String?
+    let speciesImage: String?
     let projectName: String?
+    let projectUrl: String?
+    let country: String?
+    let lifeTimeCo2: Int?
     let reason: String?
     let plantedAt: String?
+
+    init(collectUrl: String? = nil, certificateUrl: String? = nil,
+         speciesName: String? = nil, commonName: String? = nil, speciesImage: String? = nil,
+         projectName: String? = nil, projectUrl: String? = nil, country: String? = nil,
+         lifeTimeCo2: Int? = nil, reason: String? = nil, plantedAt: String? = nil) {
+        self.collectUrl = collectUrl
+        self.certificateUrl = certificateUrl
+        self.speciesName = speciesName
+        self.commonName = commonName
+        self.speciesImage = speciesImage
+        self.projectName = projectName
+        self.projectUrl = projectUrl
+        self.country = country
+        self.lifeTimeCo2 = lifeTimeCo2
+        self.reason = reason
+        self.plantedAt = plantedAt
+    }
 
     var id: String {
         certificateUrl ?? collectUrl ?? "\(speciesName ?? "tree")-\(plantedAt ?? "")"
@@ -46,8 +82,13 @@ struct PlantedTree: Codable, Hashable, Identifiable {
     var plantedDate: Date? { ISO.date(plantedAt) }
     var certificateURL: URL? { certificateUrl.flatMap(URL.init(string:)) }
     var collectURL: URL? { collectUrl.flatMap(URL.init(string:)) }
+    var projectURL: URL? { projectUrl.flatMap(URL.init(string:)) }
+    var speciesImageURL: URL? { speciesImage.flatMap(URL.init(string:)) }
 
-    var displaySpecies: String { speciesName ?? "A tree" }
+    /// Friendly name first ("Grey Mangrove"), latin as the fallback.
+    var displaySpecies: String { commonName ?? speciesName ?? "A tree" }
+    /// Latin name, only when it adds something beyond the headline.
+    var displayLatin: String? { commonName != nil ? speciesName : nil }
 
     /// Humanized grant reason (`streak_7` → "7-day care streak").
     var displayReason: String? {

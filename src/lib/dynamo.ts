@@ -510,9 +510,19 @@ export interface TreeRecord {
   certificate_url: string;
   species_name?: string;
   project_name?: string;
+  project_url?: string;
+  country?: string;
+  species_life_time_CO2?: number;
+  common_name?: string;
+  species_image?: string;
 }
 
-/** Persist actually-planted trees (Tree-Nation collect/certificate URLs). */
+/**
+ * Persist actually-planted trees. Everything the partner told us about the tree
+ * is kept — the collect/certificate URLs are the user's proof, and the species
+ * photo, common name, country, project link, and lifetime CO2 are what make the
+ * forest screen feel like real trees instead of a counter.
+ */
 export async function putTreeRecords(
   sub: string,
   trees: TreeRecord[],
@@ -528,7 +538,12 @@ export async function putTreeRecords(
           collect_url: tree.collect_url,
           certificate_url: tree.certificate_url,
           species_name: tree.species_name ?? null,
+          common_name: tree.common_name ?? null,
+          species_image: tree.species_image ?? null,
           project_name: tree.project_name ?? null,
+          project_url: tree.project_url ?? null,
+          country: tree.country ?? null,
+          life_time_co2: tree.species_life_time_CO2 ?? null,
           reason,
           planted_at: nowIso(),
         },

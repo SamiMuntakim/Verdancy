@@ -278,12 +278,18 @@ async function handleGetTrees(sub: string) {
   const [trees, planted] = await Promise.all([getTrees(sub), listTreeRecords(sub)]);
   return json(200, {
     ...trees,
-    // Real Tree-Nation plantings — each with its own certificate the user can view.
+    // Real Tree-Nation plantings — certificate + collect URLs are the proof; the
+    // species photo, country, project link, and lifetime CO2 make it tangible.
     planted: planted.map((t) => ({
       collect_url: t.collect_url,
       certificate_url: t.certificate_url,
       species_name: t.species_name,
+      common_name: t.common_name,
+      species_image: t.species_image,
       project_name: t.project_name,
+      project_url: t.project_url,
+      country: t.country,
+      life_time_co2: t.life_time_co2,
       reason: t.reason,
       planted_at: t.planted_at,
     })),

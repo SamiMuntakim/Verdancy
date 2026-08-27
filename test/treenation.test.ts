@@ -31,6 +31,17 @@ function mockFetch(
   const { plantStatus = 200, plantedSpeciesId } = opts;
   global.fetch = jest.fn(async (input: unknown, init?: { body?: string }) => {
     const url = String(input);
+    // Species DETAIL (enrichment): /api/species/{id}
+    if (/\/api\/species\/\d+/.test(url)) {
+      return {
+        ok: true,
+        json: async () => ({
+          image: 'https://cdn.example/species.jpg',
+          common_names: 'Grey Mangrove, White Mangrove',
+        }),
+      } as unknown as Response;
+    }
+    // Project species LISTING: /api/projects/{id}/species
     if (url.includes('/species')) {
       if (species === 'error') return { ok: false, status: 500 } as unknown as Response;
       if (species === 'malformed') {
@@ -220,6 +231,13 @@ describe('plantTrees', () => {
     ).length;
     expect(listingCallsAfter).toBeGreaterThan(listingCallsBefore);
     spy.mockRestore();
+  });
+
+  test('enriches each tree with the species photo and first common name', async () => {
+    mockFetch(inStock);
+    const result = await plantTrees({ internalId: 'sub-1', quantity: 1 });
+    expect(result?.trees[0].species_image).toBe('https://cdn.example/species.jpg');
+    expect(result?.trees[0].common_name).toBe('Grey Mangrove'); // first of the list
   });
 
   test('quantity 0 is a no-op that spends nothing', async () => {
