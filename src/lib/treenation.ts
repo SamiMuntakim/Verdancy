@@ -374,6 +374,24 @@ async function fetchAllFeedPages(id: number): Promise<Array<Record<string, unkno
 }
 
 /**
+ * Tree-Nation's placeholder text, used when a plant call carried no `message`.
+ * It reads like filler on a public feed, so we drop it and let the client show
+ * its own neutral line. We deliberately don't substitute a richer sentence: the
+ * feed doesn't tell us the species for these, and inventing detail about a real
+ * tree is exactly the kind of embellishment this feature exists to avoid.
+ * Grants from the app always send a message, so this only affects trees planted
+ * outside that path.
+ */
+const GENERIC_MESSAGES = ['thank you for planting trees at our side!'];
+
+function realMessage(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const text = raw.trim();
+  if (!text) return null;
+  return GENERIC_MESSAGES.includes(text.toLowerCase()) ? null : text;
+}
+
+/**
  * The community forest, cached for 15 minutes. Returns the last good payload if
  * a refresh fails, and null only when we have never had one — the app treats
  * that as "unavailable" rather than showing a wrong number.
@@ -403,7 +421,7 @@ export async function fetchCommunityForest(): Promise<CommunityForest | null> {
     return {
       id: Number(t.id),
       quantity: Number(t.quantity) || 1,
-      message: typeof t.message === 'string' ? t.message : null,
+      message: realMessage(t.message),
       image: typeof t.image === 'string' ? t.image : null,
       planted_at: typeof t.birth_date === 'string' ? t.birth_date : null,
       certificate_url: `${API_BASE}/certificate/${token}`,

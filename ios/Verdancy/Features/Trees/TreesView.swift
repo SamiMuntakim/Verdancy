@@ -177,8 +177,9 @@ private struct CommunityTreeRow: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 // Tree-Nation's own sentence already names species, project and
-                // country — showing theirs beats re-deriving one from prose.
-                Text(tree.message ?? "A tree was planted.")
+                // country, so we show theirs. When there isn't one, this neutral
+                // line stands rather than us inventing detail about a real tree.
+                Text(tree.message ?? "A tree planted in the Verdancy forest.")
                     .font(.subheadline)
                     .foregroundStyle(Theme.Color.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
