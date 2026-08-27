@@ -132,22 +132,24 @@ Response `200 OK`:
 
 ---
 
-## `species_id` is ignored — verified
+## `species_id` is honored — but only for IN-STOCK species (verified)
 
-A live call pinning `species_id: 1342` planted **3658 (Rhizophora mucronata)** instead:
+Two live calls, 2026-08-13:
 
 ```jsonc
-// request:  {"recipients":[{"internal_id":"verdancy-config-test"}],"quantity":1,"species_id":1342,"language":"en"}
-// response: "species_id": 3658, "species_name": "Rhizophora mucronata", "project_id": 269
+// A) requested 1342, which had stock: 0
+// →  planted 3658 (Rhizophora mucronata)   ← SUBSTITUTED
+// B) requested 3656, which had stock: 49,917
+// →  planted 3656 (Avicennia marina)       ← HONORED
 ```
 
-Species 1342 had gone to `stock: 0`, and Tree-Nation substituted an in-stock species from the account's project. **Tree-Nation chooses the species; we cannot.**
+**Stock, not the parameter, decides whether we get what we ask for.** Request an in-stock species and you get exactly it; request one at `stock: 0` and Tree-Nation silently substitutes from the project.
 
 Consequences for the integration:
 
-1. Pricing a single pinned species is meaningless — it may not be the one planted.
-2. Requiring the pinned species to be in stock would **block all planting** (1342 is at 0).
-3. Cost control must bound the **worst case across every species the API could pick**.
+1. **Never hardcode a `species_id`** — stock runs out (1342 went from 16k to 0 within days) and a hardcoded id rots into a silent substitution.
+2. **Recompute the cheapest in-stock species per plant** from the live listing. That's how we hold the €0.35 floor.
+3. **Still bound the substitution**, because our pick can stock out between the listing and the plant.
 
 ## Species pricing — the worst-case model
 
@@ -169,14 +171,18 @@ Consequences for the integration:
 
 Everything else in project 269 (including 1342, 1343, 2433, 2925, 2926) is **out of stock** and cannot be planted. Stock moves — re-check rather than trusting this table.
 
-> `MAX_TREE_PRICE_EUR` must be **≥ €0.50** or planting is blocked entirely: the guard refuses when any in-stock species exceeds the cap, and Ocotea sits at €0.50.
+> `MAX_TREE_PRICE_EUR` must be **≥ €0.50** or planting is blocked entirely: it bounds a _substitution_, and Ocotea (€0.50) is in stock. What we actually pay is governed by `TARGET_TREE_PRICE_EUR` (€0.35).
 
 ### Cost model
 
-Typical **€0.35**, worst case **€0.50**. At the worst case: **annual renewal = 10 trees = €5.00** · **referral = 2 trees = €1.00** (1 each side) · **streak = 1 tree / 30 real days ≈ €6/user/year**. Free users earn streak trees too, so spend scales with the whole user base — hence `DAILY_TREE_BUDGET` (30 → **≤ €15/day**).
+We pay **€0.35** — we choose the species and Tree-Nation honors it. €0.50 only arises if our pick stocks out mid-flight.
+
+At €0.35: **annual renewal = 10 trees = €3.50** · **referral = 2 trees = €0.70** (1 each side) · **streak = 1 tree / 30 real days ≈ €4.20/user/year**. Free users earn streak trees too, so spend scales with the whole user base — hence `DAILY_TREE_BUDGET` (30 → **≤ €10.50/day**).
 
 ### Spend guardrails implemented (see `src/lib/treenation.ts`, `src/lib/planting.ts`)
 
-1. **Worst-case price guard** — before every plant, the dearest _in-stock_ species in the project must be ≤ `MAX_TREE_PRICE_EUR`. Whatever Tree-Nation then picks is within budget. Over cap / nothing in stock / malformed / unverifiable → **do not plant**. Failing means not spending, never over-spending. If they ever stock something pricier, planting halts until a human reviews it.
-2. **Global daily cap** (`DAILY_TREE_BUDGET`) — bounds a runaway bug; auto-refill can't be disabled, so this is the real backstop.
-3. **Claim-before-plant** — an atomic conditional milestone write decides who plants, so retries/concurrency can't double-spend; a failed plant rolls the claim back so the tree isn't silently lost.
+1. **Cheapest-in-stock selection** — the species id is recomputed from live stock on every plant, never hardcoded. This is what holds the €0.35 floor.
+2. **Two-threshold guard** — the species we request must be ≤ `TARGET_TREE_PRICE_EUR` (what we intend to pay) _and_ the dearest in-stock species must be ≤ `MAX_TREE_PRICE_EUR` (what a substitution could cost). Either exceeded, nothing in stock, malformed, or unverifiable → **do not plant**. Failing means not spending, never over-spending.
+3. **Substitution detection** — the response is compared against what we asked for; a mismatch logs loudly and drops the cached listing, so the next plant re-reads live stock instead of repeating a doomed request.
+4. **Global daily cap** (`DAILY_TREE_BUDGET`) — bounds a runaway bug; auto-refill can't be disabled, so this is the real backstop.
+5. **Claim-before-plant** — an atomic conditional milestone write decides who plants, so retries/concurrency can't double-spend; a failed plant rolls the claim back so the tree isn't silently lost.

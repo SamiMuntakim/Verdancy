@@ -68,6 +68,7 @@ beforeEach(() => {
   process.env.TABLE_NAME = 'verdancy-test';
   process.env.TREENATION_API_TOKEN_SECRET_NAME = 'verdancy/treenation-token';
   process.env.TREENATION_PROJECT_ID = '269';
+  process.env.TARGET_TREE_PRICE_EUR = '0.35';
   process.env.MAX_TREE_PRICE_EUR = '0.5';
   smMock.on(GetSecretValueCommand).resolves({ SecretString: 'live-token' });
 });
@@ -83,11 +84,17 @@ describe('withinBudget (worst-case guard, invariant: fail = do not spend)', () =
     expect(await withinBudget()).toBe(true);
   });
 
-  test('false when ANY in-stock species exceeds the cap', async () => {
+  test('false when ANY in-stock species exceeds the substitution ceiling', async () => {
     mockFetch([
       { id: 3657, price: 0.35, stock: 48544 },
-      { id: 56, price: 14, stock: 500 }, // Tree-Nation could substitute this one
+      { id: 56, price: 14, stock: 500 }, // a stock-out could substitute this one
     ]);
+    expect(await withinBudget()).toBe(false);
+  });
+
+  test('false when even the cheapest species is above the target price', async () => {
+    // Everything within the substitution ceiling, but nothing at our target.
+    mockFetch([{ id: 2086, price: 0.5, stock: 74142 }]);
     expect(await withinBudget()).toBe(false);
   });
 
@@ -195,6 +202,23 @@ describe('plantTrees', () => {
     mockFetch(inStock);
     await plantTrees({ internalId: 'sub-1', quantity: 1 });
     expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  test('a substitution drops the stale listing so the next plant re-reads stock', async () => {
+    const spy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    mockFetch(inStock, { plantedSpeciesId: 2086 });
+    await plantTrees({ internalId: 'sub-1', quantity: 1 });
+    const listingCallsBefore = (global.fetch as jest.Mock).mock.calls.filter((c) =>
+      String(c[0]).includes('/species'),
+    ).length;
+
+    // Without cache invalidation this second plant would reuse the stale listing.
+    await plantTrees({ internalId: 'sub-2', quantity: 1 });
+    const listingCallsAfter = (global.fetch as jest.Mock).mock.calls.filter((c) =>
+      String(c[0]).includes('/species'),
+    ).length;
+    expect(listingCallsAfter).toBeGreaterThan(listingCallsBefore);
     spy.mockRestore();
   });
 

@@ -4,19 +4,21 @@ import { floatEnv, intEnv } from './env';
 /**
  * Tree-Nation planting client (`POST /api/plant`). Spends real tree credits.
  *
- * **Species choice is a request, not a guarantee.** Verified against the live
- * API 2026-08: a plant pinning `species_id` 1342 came back as 3658, because
- * 1342 had gone to `stock: 0` and Tree-Nation substituted an in-stock species.
- * So we ask for the cheapest species that is actually IN STOCK right now,
- * recomputed per plant, and we still bound the worst case in case the request
- * is overridden anyway.
+ * **`species_id` is honored — as long as the species is in stock.** Verified
+ * against the live API 2026-08: requesting in-stock 3656 planted exactly 3656,
+ * while an earlier request for 1342 (which had gone to `stock: 0`) was
+ * substituted. So stock, not the parameter, is what decides whether we get what
+ * we ask for — and we ask for the cheapest species that is in stock right now,
+ * recomputed per plant rather than hardcoded.
  *
  * Layers, all fail-safe (uncertainty → don't spend):
- *  1. Ask for the cheapest in-stock species (keeps the usual cost at the floor).
- *  2. Refuse to plant unless the DEAREST in-stock species is within
- *     `MAX_TREE_PRICE_EUR` — the true bound on what a tree can cost us.
- *  3. Log loudly if what came back isn't what we asked for, so paying above the
- *     floor is visible immediately rather than at invoice time.
+ *  1. Ask for the cheapest in-stock species, which must be within
+ *     `TARGET_TREE_PRICE_EUR` — the price we intend to pay.
+ *  2. Refuse to plant if the DEAREST in-stock species exceeds
+ *     `MAX_TREE_PRICE_EUR`, bounding what a mid-flight stock-out substitution
+ *     could cost.
+ *  3. Log loudly on a substitution and drop the stale listing, so paying above
+ *     the floor is visible immediately rather than at invoice time.
  *  4. The caller reserves a global daily budget (circuit breaker) first, and
  *     claims an atomic milestone before spending (exactly-once).
  *
@@ -44,7 +46,21 @@ function projectId(): number {
   return intEnv('TREENATION_PROJECT_ID', 269);
 }
 
-/** Hard per-tree price ceiling in the account's currency (default €0.50). */
+/**
+ * The price we intend to pay: the cheapest in-stock species must be at or under
+ * this, or we don't plant at all (default €0.35, project 269's floor).
+ */
+function targetTreePrice(): number {
+  return floatEnv('TARGET_TREE_PRICE_EUR', 0.35);
+}
+
+/**
+ * Substitution tolerance. We choose the species and Tree-Nation honors it
+ * (verified), but if our pick stocks out between listing and plant they
+ * substitute — so this bounds what such a substitution may cost (default
+ * €0.50, the dearest in-stock species in project 269). If anything pricier is
+ * in stock, we stop planting rather than risk it.
+ */
 function maxTreePrice(): number {
   return floatEnv('MAX_TREE_PRICE_EUR', 0.5);
 }
@@ -112,16 +128,18 @@ export async function fetchProjectPricing(id = projectId()): Promise<ProjectPric
 }
 
 /**
- * Fail-safe price guard: true only if EVERY species Tree-Nation could pick for
- * us is at or under the ceiling. We ask for the cheapest, but the ceiling is
- * checked against the worst case, because the request may be overridden. Any
- * uncertainty — lookup failed, a malformed entry, nothing in stock, or an
- * in-stock species above the cap — returns false and the caller must not plant.
+ * Fail-safe price guard, both halves of which must hold:
+ *  - the species we're about to request costs at most `TARGET_TREE_PRICE_EUR`;
+ *  - and a substitution (only possible if our pick stocks out mid-flight) can
+ *    cost at most `MAX_TREE_PRICE_EUR`.
+ *
+ * Any uncertainty — lookup failed, a malformed entry, nothing in stock, or
+ * either threshold exceeded — returns false and the caller must not plant.
  */
 export async function withinBudget(): Promise<boolean> {
   const pricing = await fetchProjectPricing();
   if (!pricing) return false; // can't verify → don't spend
-  return pricing.worstCase <= maxTreePrice();
+  return pricing.cheapest.price <= targetTreePrice() && pricing.worstCase <= maxTreePrice();
 }
 
 export interface PlantedTree {
@@ -161,9 +179,17 @@ export async function plantTrees(opts: {
     console.error('Tree-Nation: cannot verify pricing — not planting');
     return null;
   }
+  if (pricing.cheapest.price > targetTreePrice()) {
+    console.error(
+      `Tree-Nation: cheapest in-stock species costs ${pricing.cheapest.price}, ` +
+        `above the ${targetTreePrice()} target — not planting`,
+    );
+    return null;
+  }
   if (pricing.worstCase > maxTreePrice()) {
     console.error(
-      `Tree-Nation: in-stock species at ${pricing.worstCase} exceeds the ${maxTreePrice()} cap — not planting`,
+      `Tree-Nation: an in-stock species costs ${pricing.worstCase}, above the ` +
+        `${maxTreePrice()} substitution ceiling — not planting`,
     );
     return null;
   }
@@ -202,6 +228,10 @@ export async function plantTrees(opts: {
         `(${pricing.cheapest.name ?? '?'} at ${pricing.cheapest.price}), ` +
         `got ${substituted.species_id} (${substituted.species_name ?? '?'})`,
     );
+    // A substitution means our pick stocked out, so the cached listing is stale.
+    // Drop it: the next plant re-reads live stock and picks a species that
+    // actually exists, instead of repeating the same doomed request for an hour.
+    projectCache = undefined;
   }
   return { trees, payment_id: data.payment_id };
 }
