@@ -344,6 +344,35 @@ async function bff<T>(path: string): Promise<T | null> {
   }
 }
 
+/** Hard stop on paging, so a large forest can't turn one request into hundreds. */
+const MAX_FEED_PAGES = 10;
+
+/**
+ * Walk the whole feed rather than just page 1, so the earliest plantings stay
+ * visible as the forest grows instead of falling off the end.
+ *
+ * Their `meta.is_last_page` can't be trusted — an empty page 2 still reports
+ * `false` — so an empty `data` array is what ends the walk. Pages are fetched in
+ * sequence because we only continue when the previous one had content.
+ */
+async function fetchAllFeedPages(id: number): Promise<Array<Record<string, unknown>>> {
+  const base =
+    `ownerIds%5B%5D=${id}&sponsorId=${id}&planterIds%5B%5D=${id}` +
+    `&types%5B%5D=success_seed&types%5B%5D=tree&types%5B%5D=replant` +
+    `&orderByField=birth_date&sortDirection=DESC`;
+
+  const rows: Array<Record<string, unknown>> = [];
+  for (let page = 1; page <= MAX_FEED_PAGES; page += 1) {
+    const res = await bff<{ data?: Array<Record<string, unknown>> }>(
+      `/bff/trees/feed?page=${page}&${base}`,
+    );
+    const batch = res?.data ?? [];
+    if (batch.length === 0) break;
+    rows.push(...batch);
+  }
+  return rows;
+}
+
 /**
  * The community forest, cached for 15 minutes. Returns the last good payload if
  * a refresh fails, and null only when we have never had one — the app treats
@@ -356,15 +385,12 @@ export async function fetchCommunityForest(): Promise<CommunityForest | null> {
 
   const slug = profileSlug();
   const id = ownerId();
-  const feedQuery =
-    `page=1&ownerIds%5B%5D=${id}&sponsorId=${id}&planterIds%5B%5D=${id}` +
-    `&types%5B%5D=success_seed&types%5B%5D=tree&types%5B%5D=replant` +
-    `&orderByField=birth_date&sortDirection=DESC`;
 
-  const [profile, feed] = await Promise.all([
+  const [profile, feedRows] = await Promise.all([
     bff<{ trees_all?: number; co2_compensated_tons?: number }>(`/bff/profiles/${slug}`),
-    bff<{ data?: Array<Record<string, unknown>> }>(`/bff/trees/feed?${feedQuery}`),
+    fetchAllFeedPages(id),
   ]);
+  const feed = { data: feedRows };
 
   // Never serve a half-answer: without the profile we don't know the true total,
   // and a count that disagrees with the partner's own page is worse than none.
