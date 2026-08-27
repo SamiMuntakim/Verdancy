@@ -296,7 +296,7 @@ export class VerdancyStack extends cdk.Stack {
       TREENATION_API_TOKEN_SECRET_NAME: TREENATION_SECRET_NAME,
       TREENATION_SPECIES_ID: '1342',
       MAX_TREE_PRICE_EUR: '0.35',
-      DAILY_TREE_BUDGET: '500',
+      DAILY_TREE_BUDGET: '30',
     };
 
     // ---------------------------------------------------------------------

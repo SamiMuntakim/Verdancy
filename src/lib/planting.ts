@@ -27,7 +27,7 @@ import {
  * webhook ack that triggered it.
  */
 
-const DAILY_TREE_BUDGET = (): number => intEnv('DAILY_TREE_BUDGET', 500);
+const DAILY_TREE_BUDGET = (): number => intEnv('DAILY_TREE_BUDGET', 30);
 
 export async function grantTrees(opts: {
   sub: string;
