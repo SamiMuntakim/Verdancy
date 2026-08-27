@@ -128,37 +128,55 @@ Response `200 OK`:
 - **Batch with top-level `quantity`** — yearly renewal = one call with `quantity: 10`; streak = `quantity: 1`.
 - **Privacy:** pass `internal_id` (opaque `sub`), **omit `email`** → no third-party email, no PII leak. User still gets `collect_url` + `certificate_url` to view in-app.
 - **Store from the response:** `collect_url`, `certificate_url`, `token`, `payment_id` (per user, for the in-app reward + reconciliation).
-- **The example auto-assigned project 269 / species 2924** (not project 3 / species 518). Confirm whether `species_id` on the plant body actually pins the species; if not, cost control may require Tree-Nation configuring our default project.
+- **`species_id` IS IGNORED on `POST /api/plant`** — verified against the live API 2026-08-13 (see below). Do not build cost control on it.
 
 ---
 
-## Species pricing — what we plant and why
+## `species_id` is ignored — verified
 
-**Prices differ per PROJECT.** The account defaults to **project 269** ("Replanting the burnt Mkussu Forest", Tanzania), whose floor is **€0.35** — far cheaper than project 3 (floor €2). Always price a species against the project you're actually planting in.
+A live call pinning `species_id: 1342` planted **3658 (Rhizophora mucronata)** instead:
 
-### Project 269 — in-stock species (at capture time)
+```jsonc
+// request:  {"recipients":[{"internal_id":"verdancy-config-test"}],"quantity":1,"species_id":1342,"language":"en"}
+// response: "species_id": 3658, "species_name": "Rhizophora mucronata", "project_id": 269
+```
 
-| id       | name                    | price     | stock      |
-| -------- | ----------------------- | --------- | ---------- |
-| **1342** | Albizia gummifera       | **€0.35** | **16,127** |
-| 1343     | Markhamia lutea         | €0.35     | 14,379     |
-| 2433     | Syzygium guineense      | €0.35     | 8,985      |
-| 2925     | Afrocarpus usambarensis | €0.35     | 9,002      |
-| 2926     | Bridelia micrantha      | €0.35     | 7,762      |
-| 2086     | Ocotea usambarensis     | €0.50     | 101,322    |
-| 2923     | Rauvolfia caffra        | €0.50     | 22,515     |
+Species 1342 had gone to `stock: 0`, and Tree-Nation substituted an in-stock species from the account's project. **Tree-Nation chooses the species; we cannot.**
 
-**We pin `species_id: 1342`** (`TREENATION_SPECIES_ID`) — cheapest tier, deepest stock. The other €0.35 ids are the fallback list if it ever stocks out.
+Consequences for the integration:
 
-> Species 2924 (Prunus africana) from the docs' example response is now **stock 0** — it can't be planted. Project 269 also contains €0.50 species, so "select by price" (omitting `species_id`) could still pick one: always pin.
+1. Pricing a single pinned species is meaningless — it may not be the one planted.
+2. Requiring the pinned species to be in stock would **block all planting** (1342 is at 0).
+3. Cost control must bound the **worst case across every species the API could pick**.
 
-### Cost model for our planting rules
+## Species pricing — the worst-case model
 
-At €0.35/tree: **annual renewal = 10 trees = €3.50** · **referral = 2 trees = €0.70** (1 each side) · **streak = 1 tree / 30 real days ≈ €4.20/user/year**. Free users also earn streak trees, so spend scales with the whole user base — hence `DAILY_TREE_BUDGET`, the global circuit breaker.
+**Prices differ per PROJECT.** The account plants from **project 269** ("Replanting the burnt Mkussu Forest", Tanzania). Project 3, by contrast, has a €2 floor — always price against the project actually in use.
+
+### Project 269 — in stock as of 2026-08-13 (9 of 31 species)
+
+| price     | stock   | name                                     |
+| --------- | ------- | ---------------------------------------- |
+| **€0.50** | 74,142  | Ocotea usambarensis ← **the worst case** |
+| €0.35     | 49,917  | Avicennia marina                         |
+| €0.35     | 124,986 | Ceriops tagal                            |
+| €0.35     | 48,544  | Rhizophora mucronata                     |
+| €0.35     | 49,531  | Xylocarpus granatum                      |
+| €0.35     | 74,312  | Bruguiera gymnorhiza                     |
+| €0.35     | 49,990  | Sonneratia alba                          |
+| €0.35     | 49,970  | Lumnitzera racemosa                      |
+| €0.35     | 49,745  | Heritiera littoralis                     |
+
+Everything else in project 269 (including 1342, 1343, 2433, 2925, 2926) is **out of stock** and cannot be planted. Stock moves — re-check rather than trusting this table.
+
+> `MAX_TREE_PRICE_EUR` must be **≥ €0.50** or planting is blocked entirely: the guard refuses when any in-stock species exceeds the cap, and Ocotea sits at €0.50.
+
+### Cost model
+
+Typical **€0.35**, worst case **€0.50**. At the worst case: **annual renewal = 10 trees = €5.00** · **referral = 2 trees = €1.00** (1 each side) · **streak = 1 tree / 30 real days ≈ €6/user/year**. Free users earn streak trees too, so spend scales with the whole user base — hence `DAILY_TREE_BUDGET` (30 → **≤ €15/day**).
 
 ### Spend guardrails implemented (see `src/lib/treenation.ts`, `src/lib/planting.ts`)
 
-1. **Pinned species** — never "select by price".
-2. **Live price+stock re-check** before every plant against `MAX_TREE_PRICE_EUR` (0.35); over cap / out of stock / unverifiable → **do not plant**. Failing means not spending, never over-spending.
-3. **Global daily cap** (`DAILY_TREE_BUDGET`) — bounds a runaway bug; Tree-Nation auto-refill can't be disabled, so this is the real backstop.
-4. **Claim-before-plant** — an atomic conditional milestone write decides who plants, so retries/concurrency can't double-spend; a failed plant rolls the claim back so the tree isn't silently lost.
+1. **Worst-case price guard** — before every plant, the dearest _in-stock_ species in the project must be ≤ `MAX_TREE_PRICE_EUR`. Whatever Tree-Nation then picks is within budget. Over cap / nothing in stock / malformed / unverifiable → **do not plant**. Failing means not spending, never over-spending. If they ever stock something pricier, planting halts until a human reviews it.
+2. **Global daily cap** (`DAILY_TREE_BUDGET`) — bounds a runaway bug; auto-refill can't be disabled, so this is the real backstop.
+3. **Claim-before-plant** — an atomic conditional milestone write decides who plants, so retries/concurrency can't double-spend; a failed plant rolls the claim back so the tree isn't silently lost.

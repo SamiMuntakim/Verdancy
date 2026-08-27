@@ -2,16 +2,24 @@ import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-sec
 import { floatEnv, intEnv } from './env';
 
 /**
- * Tree-Nation planting client (`POST /api/plant`). Spends real tree credits, so
- * every call is guarded by THREE independent, fail-safe layers (see the callers
- * for the other two):
+ * Tree-Nation planting client (`POST /api/plant`). Spends real tree credits.
  *
- *  1. We pin a specific cheap `species_id` — never "select by price".
- *  2. `withinBudget()` re-checks the pinned species' LIVE price + stock against
- *     `MAX_TREE_PRICE_EUR` before every plant. Above the cap, out of stock, or if
- *     the check itself can't be trusted → we DO NOT plant. Failing means not
- *     spending, never over-spending.
- *  3. The caller reserves a global daily budget (circuit breaker) first.
+ * **We do not choose the species.** Verified against the live API 2026-08:
+ * passing `species_id` is silently IGNORED — a request pinning 1342 planted
+ * 3658 instead, because 1342 had no stock. Tree-Nation picks from the account's
+ * project, so any guard that prices one chosen species is checking something
+ * that won't be planted.
+ *
+ * So the guard bounds the WORST CASE instead: the most expensive in-stock
+ * species in the configured project must be at or under `MAX_TREE_PRICE_EUR`.
+ * Whatever Tree-Nation then picks is guaranteed to be within budget. If they
+ * ever stock something pricier in that project, planting stops until a human
+ * reviews it, rather than quietly costing more.
+ *
+ * Layers, all fail-safe (uncertainty → don't spend):
+ *  1. `withinBudget()` — the project-wide worst-case price check above.
+ *  2. The caller reserves a global daily budget (circuit breaker) first.
+ *  3. The caller claims an atomic milestone before spending (exactly-once).
  *
  * The token is loaded from Secrets Manager (cached), mirroring the webhook secret.
  * Node 20 provides global `fetch`.
@@ -32,54 +40,66 @@ async function getApiToken(): Promise<string> {
   return cachedToken;
 }
 
-/** Species id we plant (default 1342 = Albizia gummifera, €0.35, deep stock). */
-function speciesId(): number {
-  return intEnv('TREENATION_SPECIES_ID', 1342);
+/** The project Tree-Nation plants our trees from (default 269, Mkussu Forest). */
+function projectId(): number {
+  return intEnv('TREENATION_PROJECT_ID', 269);
 }
 
-/** Hard per-tree price ceiling in the account's currency (default €0.35). */
+/** Hard per-tree price ceiling in the account's currency (default €0.50). */
 function maxTreePrice(): number {
-  return floatEnv('MAX_TREE_PRICE_EUR', 0.35);
+  return floatEnv('MAX_TREE_PRICE_EUR', 0.5);
 }
 
-interface SpeciesInfo {
+interface Species {
   price: number;
   stock: number;
 }
 
-// Cache the price/stock lookup so we don't hit the species endpoint on every
-// plant, but refresh often enough to notice a price rise or a stock-out.
-let speciesCache: { id: number; info: SpeciesInfo; at: number } | undefined;
-const SPECIES_TTL_MS = 60 * 60 * 1000; // 1h
+// Cache the project lookup so we don't hit the species endpoint on every plant,
+// but refresh often enough to notice a price change or new stock.
+let projectCache: { id: number; maxPrice: number | null; at: number } | undefined;
+const PROJECT_TTL_MS = 60 * 60 * 1000; // 1h
 
-async function fetchSpecies(id: number): Promise<SpeciesInfo | null> {
-  if (speciesCache && speciesCache.id === id && Date.now() - speciesCache.at < SPECIES_TTL_MS) {
-    return speciesCache.info;
+/**
+ * The highest price among IN-STOCK species in the project — i.e. the most a
+ * single tree can cost us. Returns null if it can't be determined (network
+ * failure, malformed payload, or nothing in stock at all).
+ */
+async function fetchWorstCasePrice(id: number): Promise<number | null> {
+  if (projectCache && projectCache.id === id && Date.now() - projectCache.at < PROJECT_TTL_MS) {
+    return projectCache.maxPrice;
   }
   try {
-    const res = await fetch(`${API_BASE}/api/species/${id}`);
+    const res = await fetch(`${API_BASE}/api/projects/${id}/species`);
     if (!res.ok) return null;
-    const data = (await res.json()) as { price?: unknown; stock?: unknown };
-    const price = typeof data.price === 'number' ? data.price : Number(data.price);
-    const stock = typeof data.stock === 'number' ? data.stock : Number(data.stock);
-    if (!Number.isFinite(price) || !Number.isFinite(stock)) return null;
-    const info: SpeciesInfo = { price, stock };
-    speciesCache = { id, info, at: Date.now() };
-    return info;
+    const data = (await res.json()) as unknown;
+    if (!Array.isArray(data) || data.length === 0) return null;
+
+    let worst: number | null = null;
+    for (const raw of data as Species[]) {
+      const price = Number(raw?.price);
+      const stock = Number(raw?.stock);
+      // A malformed entry could hide a real price — refuse rather than guess.
+      if (!Number.isFinite(price) || !Number.isFinite(stock)) return null;
+      if (stock > 0) worst = worst === null ? price : Math.max(worst, price);
+    }
+    projectCache = { id, maxPrice: worst, at: Date.now() };
+    return worst;
   } catch {
     return null;
   }
 }
 
 /**
- * Fail-safe price guard: true only if we can CONFIRM the pinned species is at or
- * under the cap and in stock. Any uncertainty (lookup failed, price too high,
- * no stock) returns false → the caller must not plant.
+ * Fail-safe price guard: true only if EVERY species Tree-Nation could pick for
+ * us is at or under the ceiling. Any uncertainty — lookup failed, a malformed
+ * entry, nothing in stock, or an in-stock species above the cap — returns false
+ * and the caller must not plant.
  */
 export async function withinBudget(): Promise<boolean> {
-  const info = await fetchSpecies(speciesId());
-  if (!info) return false; // can't verify → don't spend
-  return info.price <= maxTreePrice() && info.stock > 0;
+  const worst = await fetchWorstCasePrice(projectId());
+  if (worst === null) return false; // can't verify → don't spend
+  return worst <= maxTreePrice();
 }
 
 export interface PlantedTree {
@@ -119,10 +139,11 @@ export async function plantTrees(opts: {
   }
 
   const token = await getApiToken();
+  // No `species_id`: the API ignores it (verified 2026-08) and picks from the
+  // account's project. `withinBudget()` above is what bounds the cost.
   const body: Record<string, unknown> = {
     recipients: [{ internal_id: opts.internalId }],
     quantity: opts.quantity,
-    species_id: speciesId(),
     language: 'en',
   };
   if (opts.message) body.message = opts.message;
@@ -142,5 +163,5 @@ export async function plantTrees(opts: {
 /** Test-only: reset caches between unit tests. */
 export function _resetTreeNationCachesForTest(): void {
   cachedToken = undefined;
-  speciesCache = undefined;
+  projectCache = undefined;
 }

@@ -287,15 +287,16 @@ export class VerdancyStack extends cdk.Stack {
       'TreeNationApiToken',
       TREENATION_SECRET_NAME,
     );
-    // Planting config. TREENATION_SPECIES_ID pins a specific cheap, in-stock
-    // species (1342 = Albizia gummifera, €0.35) instead of letting the API pick
-    // by price; MAX_TREE_PRICE_EUR is the hard ceiling the client re-verifies
-    // before every plant; DAILY_TREE_BUDGET is the global circuit breaker that
-    // bounds a runaway bug (Tree-Nation auto-refill can't be turned off).
+    // Planting config. Tree-Nation IGNORES a requested species_id and picks from
+    // the account's project (verified against the live API), so cost control is
+    // MAX_TREE_PRICE_EUR: before every plant the client checks that the dearest
+    // IN-STOCK species in TREENATION_PROJECT_ID is at or under it, bounding what
+    // any single tree can cost. DAILY_TREE_BUDGET is the global circuit breaker
+    // that bounds a runaway bug (auto-refill can't be turned off).
     const treeEnv = {
       TREENATION_API_TOKEN_SECRET_NAME: TREENATION_SECRET_NAME,
-      TREENATION_SPECIES_ID: '1342',
-      MAX_TREE_PRICE_EUR: '0.35',
+      TREENATION_PROJECT_ID: '269',
+      MAX_TREE_PRICE_EUR: '0.50',
       DAILY_TREE_BUDGET: '30',
     };
 

@@ -13,12 +13,18 @@ function conditionalFailure(): Error {
   });
 }
 
-/** Route the mocked fetch by URL: species lookup (GET) vs plant (POST). */
-function mockFetch(species: { price: number; stock: number } | 'error', plantStatus = 200) {
+/** Route the mocked fetch by URL: project species list (GET) vs plant (POST). */
+function mockFetch(
+  species: Array<{ price: number; stock: number }> | 'error' | 'malformed',
+  plantStatus = 200,
+) {
   global.fetch = jest.fn(async (input: unknown) => {
     const url = String(input);
-    if (url.includes('/api/species/')) {
+    if (url.includes('/species')) {
       if (species === 'error') return { ok: false, status: 500 } as unknown as Response;
+      if (species === 'malformed') {
+        return { ok: true, json: async () => [{ price: 'oops' }] } as unknown as Response;
+      }
       return { ok: true, json: async () => species } as unknown as Response;
     }
     // /api/plant
@@ -48,24 +54,40 @@ beforeEach(() => {
   _resetTreeNationCachesForTest();
   process.env.TABLE_NAME = 'verdancy-test';
   process.env.TREENATION_API_TOKEN_SECRET_NAME = 'verdancy/treenation-token';
-  process.env.TREENATION_SPECIES_ID = '1342';
-  process.env.MAX_TREE_PRICE_EUR = '0.35';
+  process.env.TREENATION_PROJECT_ID = '269';
+  process.env.MAX_TREE_PRICE_EUR = '0.5';
   smMock.on(GetSecretValueCommand).resolves({ SecretString: 'live-token' });
 });
 
-describe('withinBudget (price guard, invariant: fail = do not spend)', () => {
-  test('true when pinned species is at/under cap and in stock', async () => {
-    mockFetch({ price: 0.35, stock: 16127 });
+// Tree-Nation ignores species_id and picks for us, so the guard must bound the
+// WORST case across everything it could pick — not the price of any one species.
+describe('withinBudget (worst-case guard, invariant: fail = do not spend)', () => {
+  test('true when every in-stock species is at/under the cap', async () => {
+    mockFetch([
+      { price: 0.35, stock: 48544 },
+      { price: 0.5, stock: 74142 },
+    ]);
     expect(await withinBudget()).toBe(true);
   });
 
-  test('false when price exceeds the cap', async () => {
-    mockFetch({ price: 2, stock: 100 });
+  test('false when ANY in-stock species exceeds the cap', async () => {
+    mockFetch([
+      { price: 0.35, stock: 48544 },
+      { price: 14, stock: 500 }, // Tree-Nation could pick this one
+    ]);
     expect(await withinBudget()).toBe(false);
   });
 
-  test('false when out of stock', async () => {
-    mockFetch({ price: 0.35, stock: 0 });
+  test('an out-of-stock expensive species is ignored (it cannot be picked)', async () => {
+    mockFetch([
+      { price: 0.35, stock: 48544 },
+      { price: 14, stock: 0 },
+    ]);
+    expect(await withinBudget()).toBe(true);
+  });
+
+  test('false when nothing is in stock at all', async () => {
+    mockFetch([{ price: 0.35, stock: 0 }]);
     expect(await withinBudget()).toBe(false);
   });
 
@@ -73,19 +95,26 @@ describe('withinBudget (price guard, invariant: fail = do not spend)', () => {
     mockFetch('error');
     expect(await withinBudget()).toBe(false);
   });
+
+  test('false on a malformed entry — a bad price could be hiding a real one', async () => {
+    mockFetch('malformed');
+    expect(await withinBudget()).toBe(false);
+  });
 });
+
+const inStock = [{ price: 0.35, stock: 48544 }];
 
 describe('plantTrees', () => {
   test('does NOT call the plant endpoint when the guard fails', async () => {
-    mockFetch({ price: 2, stock: 100 });
+    mockFetch([{ price: 2, stock: 100 }]);
     const result = await plantTrees({ internalId: 'sub-1', quantity: 1 });
     expect(result).toBeNull();
     const calls = (global.fetch as jest.Mock).mock.calls.map((c) => String(c[0]));
     expect(calls.some((u) => u.includes('/api/plant'))).toBe(false);
   });
 
-  test('plants with pinned species, Bearer token, and no email (no PII)', async () => {
-    mockFetch({ price: 0.35, stock: 16127 });
+  test('plants with the Bearer token and no email (no PII leaves our system)', async () => {
+    mockFetch(inStock);
     const result = await plantTrees({ internalId: 'sub-1', quantity: 10 });
     expect(result?.trees[0].collect_url).toContain('/collect/');
 
@@ -96,20 +125,29 @@ describe('plantTrees', () => {
     const [, init] = plantCall!;
     expect(init.headers.Authorization).toBe('Bearer live-token');
     const body = JSON.parse(init.body);
-    expect(body.species_id).toBe(1342);
     expect(body.quantity).toBe(10);
+    expect(body.recipients[0].internal_id).toBe('sub-1');
     expect(body.recipients[0].email).toBeUndefined();
   });
 
+  test('does not send species_id — the API ignores it and picks for us', async () => {
+    mockFetch(inStock);
+    await plantTrees({ internalId: 'sub-1', quantity: 1 });
+    const plantCall = (global.fetch as jest.Mock).mock.calls.find((c) =>
+      String(c[0]).includes('/api/plant'),
+    );
+    expect(JSON.parse(plantCall![1].body).species_id).toBeUndefined();
+  });
+
   test('quantity 0 is a no-op that spends nothing', async () => {
-    mockFetch({ price: 0.35, stock: 16127 });
+    mockFetch(inStock);
     const result = await plantTrees({ internalId: 'sub-1', quantity: 0 });
     expect(result).toEqual({ trees: [] });
     expect(global.fetch).not.toHaveBeenCalled();
   });
 
   test('throws on an API error so the caller can reconcile', async () => {
-    mockFetch({ price: 0.35, stock: 16127 }, 500);
+    mockFetch(inStock, 500);
     await expect(plantTrees({ internalId: 'sub-1', quantity: 1 })).rejects.toThrow();
   });
 });
