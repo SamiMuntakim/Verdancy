@@ -15,6 +15,14 @@ struct PaywallView: View {
     private var monthlyPrice: EntitlementService.PlanPrice? { app.entitlement.price(for: .monthly) }
     private var priceUnavailable: Bool { (plan == .annual ? annualPrice : monthlyPrice) == nil }
 
+    /// A plan whose product never came back from StoreKit can't be bought, so it is
+    /// hidden rather than shown as a row that says "Loading plans…" forever. Before
+    /// the offering lands, both rows show so the layout doesn't jump.
+    private func planAvailable(_ candidate: EntitlementService.Plan) -> Bool {
+        guard app.entitlement.offeringLoaded else { return true }
+        return (candidate == .annual ? annualPrice : monthlyPrice) != nil
+    }
+
     private func annualSubtitle(_ price: EntitlementService.PlanPrice?) -> String {
         if let perMonth = price?.perMonth {
             return "7-day free trial · just \(perMonth)/mo, billed yearly"
@@ -50,14 +58,24 @@ struct PaywallView: View {
                     SocialProofCard()
 
                     VStack(spacing: Theme.Space.m) {
-                        PlanRow(title: "Annual", price: annualPrice?.total ?? "—",
-                                subtitle: annualSubtitle(annualPrice),
-                                badge: annualPrice?.savingsPercent.map { "SAVE \($0)%" },
-                                selected: plan == .annual) { plan = .annual }
-                        PlanRow(title: "Monthly", price: monthlyPrice?.total ?? "—",
-                                subtitle: "Flexible, month to month",
-                                badge: nil,
-                                selected: plan == .monthly) { plan = .monthly }
+                        if planAvailable(.annual) {
+                            PlanRow(title: "Annual", price: annualPrice?.total ?? "—",
+                                    subtitle: annualSubtitle(annualPrice),
+                                    badge: annualPrice?.savingsPercent.map { "SAVE \($0)%" },
+                                    selected: plan == .annual) { plan = .annual }
+                        }
+                        if planAvailable(.monthly) {
+                            PlanRow(title: "Monthly", price: monthlyPrice?.total ?? "—",
+                                    subtitle: "Flexible, month to month",
+                                    badge: nil,
+                                    selected: plan == .monthly) { plan = .monthly }
+                        }
+                    }
+                    // Never leave the user selected on a plan that isn't purchasable.
+                    .onChange(of: app.entitlement.offeringLoaded) { _, _ in
+                        if !planAvailable(plan) {
+                            plan = planAvailable(.annual) ? .annual : .monthly
+                        }
                     }
 
                     Button {

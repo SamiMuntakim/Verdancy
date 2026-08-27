@@ -157,7 +157,14 @@ struct OnboardingView: View {
                     .padding(.bottom, Theme.Space.xl)
             }
         }
-        .onAppear { Analytics.log("onboarding_viewed") }
+        .onAppear {
+            // Someone who already onboarded on this device is here to sign back in
+            // (they signed out, or their session expired) — drop them on the auth
+            // page instead of replaying the intro and quiz. Back still works if they
+            // want to walk through it again.
+            if AppModel.hasOnboarded { page = authPage }
+            Analytics.log("onboarding_viewed")
+        }
         .sheet(isPresented: $showEmail) {
             EmailAuthView().environment(app)
         }

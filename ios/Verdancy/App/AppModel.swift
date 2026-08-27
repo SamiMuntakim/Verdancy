@@ -94,6 +94,17 @@ final class AppModel {
         WidgetCenter.shared.reloadAllTimelines()
     }
 
+    // MARK: - Onboarding
+
+    private static let hasOnboardedKey = "verdancy.hasOnboarded"
+
+    /// Whether the intro slides + quiz have been completed on this device. Survives
+    /// sign-out on purpose: the quiz is a first-impression tool, not a login step.
+    static var hasOnboarded: Bool {
+        get { UserDefaults.standard.bool(forKey: hasOnboardedKey) }
+        set { UserDefaults.standard.set(newValue, forKey: hasOnboardedKey) }
+    }
+
     // MARK: - Session
 
     /// Return to the sign-in gate when the session is gone.
@@ -191,6 +202,10 @@ final class AppModel {
 
     /// Shared post-sign-in setup, whichever provider was used.
     private func completeSignIn() async {
+        // Reaching a signed-in state means the intro + quiz have been answered on
+        // this device; signing out (or a session expiring) shouldn't make the user
+        // sit through them again just to reach the sign-in buttons.
+        AppModel.hasOnboarded = true
         try? await api.createUser() // idempotent profile upsert (iOS-PRD §8.1)
         if let sub = await auth.userId() { await entitlement.login(userId: sub) }
         phase = .signedIn

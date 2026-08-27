@@ -14,6 +14,9 @@ final class EntitlementService {
     var isSubscribed = false
     private(set) var annualPackage: Package?
     private(set) var monthlyPackage: Package?
+    /// True once an offering has come back, whether or not every plan was in it —
+    /// lets the paywall tell "still loading" apart from "this plan isn't available".
+    private(set) var offeringLoaded = false
 
     func bootstrap() async {
         guard !AppConfig.useMockAuth else { return }
@@ -41,8 +44,25 @@ final class EntitlementService {
             isSubscribed = info.entitlements[AppConfig.entitlementID]?.isActive == true
         }
         if let offering = try? await Purchases.shared.offerings().current {
-            annualPackage = offering.annual ?? offering.availablePackages.first { $0.packageType == .annual }
+            // `offering.annual` / `.monthly` only match the standard `$rc_` package
+            // identifiers, so fall back to package TYPE for both — previously only
+            // annual had that fallback, which is why a non-standard monthly package
+            // silently vanished from the paywall.
+            annualPackage = offering.annual
+                ?? offering.availablePackages.first { $0.packageType == .annual }
             monthlyPackage = offering.monthly
+                ?? offering.availablePackages.first { $0.packageType == .monthly }
+            offeringLoaded = true
+
+            // A product missing here almost always means StoreKit refused to return
+            // it — usually because it isn't "Ready to Submit" in App Store Connect.
+            // Say so out loud rather than leaving the paywall stuck on "Loading".
+            if annualPackage == nil || monthlyPackage == nil {
+                let ids = offering.availablePackages
+                    .map { "\($0.identifier)=\($0.storeProduct.productIdentifier)" }
+                    .joined(separator: ", ")
+                print("[Entitlement] Missing a plan. Offering '\(offering.identifier)' has: [\(ids)]")
+            }
         }
     }
 
