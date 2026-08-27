@@ -4,22 +4,21 @@ import { floatEnv, intEnv } from './env';
 /**
  * Tree-Nation planting client (`POST /api/plant`). Spends real tree credits.
  *
- * **We do not choose the species.** Verified against the live API 2026-08:
- * passing `species_id` is silently IGNORED — a request pinning 1342 planted
- * 3658 instead, because 1342 had no stock. Tree-Nation picks from the account's
- * project, so any guard that prices one chosen species is checking something
- * that won't be planted.
- *
- * So the guard bounds the WORST CASE instead: the most expensive in-stock
- * species in the configured project must be at or under `MAX_TREE_PRICE_EUR`.
- * Whatever Tree-Nation then picks is guaranteed to be within budget. If they
- * ever stock something pricier in that project, planting stops until a human
- * reviews it, rather than quietly costing more.
+ * **Species choice is a request, not a guarantee.** Verified against the live
+ * API 2026-08: a plant pinning `species_id` 1342 came back as 3658, because
+ * 1342 had gone to `stock: 0` and Tree-Nation substituted an in-stock species.
+ * So we ask for the cheapest species that is actually IN STOCK right now,
+ * recomputed per plant, and we still bound the worst case in case the request
+ * is overridden anyway.
  *
  * Layers, all fail-safe (uncertainty → don't spend):
- *  1. `withinBudget()` — the project-wide worst-case price check above.
- *  2. The caller reserves a global daily budget (circuit breaker) first.
- *  3. The caller claims an atomic milestone before spending (exactly-once).
+ *  1. Ask for the cheapest in-stock species (keeps the usual cost at the floor).
+ *  2. Refuse to plant unless the DEAREST in-stock species is within
+ *     `MAX_TREE_PRICE_EUR` — the true bound on what a tree can cost us.
+ *  3. Log loudly if what came back isn't what we asked for, so paying above the
+ *     floor is visible immediately rather than at invoice time.
+ *  4. The caller reserves a global daily budget (circuit breaker) first, and
+ *     claims an atomic milestone before spending (exactly-once).
  *
  * The token is loaded from Secrets Manager (cached), mirroring the webhook secret.
  * Node 20 provides global `fetch`.
@@ -51,23 +50,36 @@ function maxTreePrice(): number {
 }
 
 interface Species {
+  id: number;
+  name?: string;
   price: number;
   stock: number;
 }
 
+export interface ProjectPricing {
+  /** Cheapest IN-STOCK species — the one we ask Tree-Nation to plant. */
+  cheapest: Species;
+  /** Dearest in-stock price — what a tree could cost if our pick is ignored. */
+  worstCase: number;
+}
+
 // Cache the project lookup so we don't hit the species endpoint on every plant,
-// but refresh often enough to notice a price change or new stock.
-let projectCache: { id: number; maxPrice: number | null; at: number } | undefined;
+// but refresh often enough to notice a price change or a stock-out.
+let projectCache: { id: number; pricing: ProjectPricing | null; at: number } | undefined;
 const PROJECT_TTL_MS = 60 * 60 * 1000; // 1h
 
 /**
- * The highest price among IN-STOCK species in the project — i.e. the most a
- * single tree can cost us. Returns null if it can't be determined (network
- * failure, malformed payload, or nothing in stock at all).
+ * Live pricing for the project: the cheapest in-stock species (what we request)
+ * and the dearest in-stock price (what we could be charged if the request is
+ * ignored). Returns null if it can't be determined — network failure, malformed
+ * payload, or nothing in stock at all — so the caller refuses to spend.
+ *
+ * Only `stock > 0` species count: an out-of-stock species can't be planted, and
+ * asking for one is what made Tree-Nation substitute a species of its choosing.
  */
-async function fetchWorstCasePrice(id: number): Promise<number | null> {
+export async function fetchProjectPricing(id = projectId()): Promise<ProjectPricing | null> {
   if (projectCache && projectCache.id === id && Date.now() - projectCache.at < PROJECT_TTL_MS) {
-    return projectCache.maxPrice;
+    return projectCache.pricing;
   }
   try {
     const res = await fetch(`${API_BASE}/api/projects/${id}/species`);
@@ -75,16 +87,25 @@ async function fetchWorstCasePrice(id: number): Promise<number | null> {
     const data = (await res.json()) as unknown;
     if (!Array.isArray(data) || data.length === 0) return null;
 
-    let worst: number | null = null;
+    let cheapest: Species | null = null;
+    let worstCase: number | null = null;
     for (const raw of data as Species[]) {
       const price = Number(raw?.price);
       const stock = Number(raw?.stock);
+      const speciesId = Number(raw?.id);
       // A malformed entry could hide a real price — refuse rather than guess.
-      if (!Number.isFinite(price) || !Number.isFinite(stock)) return null;
-      if (stock > 0) worst = worst === null ? price : Math.max(worst, price);
+      if (!Number.isFinite(price) || !Number.isFinite(stock) || !Number.isFinite(speciesId)) {
+        return null;
+      }
+      if (stock <= 0) continue;
+      if (!cheapest || price < cheapest.price) {
+        cheapest = { id: speciesId, name: raw?.name, price, stock };
+      }
+      worstCase = worstCase === null ? price : Math.max(worstCase, price);
     }
-    projectCache = { id, maxPrice: worst, at: Date.now() };
-    return worst;
+    const pricing = cheapest && worstCase !== null ? { cheapest, worstCase } : null;
+    projectCache = { id, pricing, at: Date.now() };
+    return pricing;
   } catch {
     return null;
   }
@@ -92,14 +113,15 @@ async function fetchWorstCasePrice(id: number): Promise<number | null> {
 
 /**
  * Fail-safe price guard: true only if EVERY species Tree-Nation could pick for
- * us is at or under the ceiling. Any uncertainty — lookup failed, a malformed
- * entry, nothing in stock, or an in-stock species above the cap — returns false
- * and the caller must not plant.
+ * us is at or under the ceiling. We ask for the cheapest, but the ceiling is
+ * checked against the worst case, because the request may be overridden. Any
+ * uncertainty — lookup failed, a malformed entry, nothing in stock, or an
+ * in-stock species above the cap — returns false and the caller must not plant.
  */
 export async function withinBudget(): Promise<boolean> {
-  const worst = await fetchWorstCasePrice(projectId());
-  if (worst === null) return false; // can't verify → don't spend
-  return worst <= maxTreePrice();
+  const pricing = await fetchProjectPricing();
+  if (!pricing) return false; // can't verify → don't spend
+  return pricing.worstCase <= maxTreePrice();
 }
 
 export interface PlantedTree {
@@ -133,17 +155,28 @@ export async function plantTrees(opts: {
   message?: string;
 }): Promise<PlantResult | null> {
   if (opts.quantity <= 0) return { trees: [] };
-  if (!(await withinBudget())) {
-    console.error('Tree-Nation: price guard blocked planting (price/stock/verify failure)');
+
+  const pricing = await fetchProjectPricing();
+  if (!pricing) {
+    console.error('Tree-Nation: cannot verify pricing — not planting');
+    return null;
+  }
+  if (pricing.worstCase > maxTreePrice()) {
+    console.error(
+      `Tree-Nation: in-stock species at ${pricing.worstCase} exceeds the ${maxTreePrice()} cap — not planting`,
+    );
     return null;
   }
 
   const token = await getApiToken();
-  // No `species_id`: the API ignores it (verified 2026-08) and picks from the
-  // account's project. `withinBudget()` above is what bounds the cost.
+  // Ask for the CHEAPEST in-stock species. Tree-Nation substitutes a species of
+  // its own choosing when the requested one has no stock (that's what happened
+  // when we pinned a fixed id and its stock ran out), so the id is recomputed
+  // from live stock on every plant rather than hardcoded.
   const body: Record<string, unknown> = {
     recipients: [{ internal_id: opts.internalId }],
     quantity: opts.quantity,
+    species_id: pricing.cheapest.id,
     language: 'en',
   };
   if (opts.message) body.message = opts.message;
@@ -157,7 +190,20 @@ export async function plantTrees(opts: {
     throw new Error(`Tree-Nation plant failed: HTTP ${res.status}`);
   }
   const data = (await res.json()) as { trees?: PlantedTree[]; payment_id?: number };
-  return { trees: data.trees ?? [], payment_id: data.payment_id };
+  const trees = data.trees ?? [];
+
+  // Did we get what we asked for? Money is already spent either way, but a
+  // silent substitution means we're paying above the cheapest rate, and we
+  // want that visible rather than buried in an invoice at the end of the month.
+  const substituted = trees.find((t) => t.species_id && t.species_id !== pricing.cheapest.id);
+  if (substituted) {
+    console.error(
+      `Tree-Nation substituted species: asked ${pricing.cheapest.id} ` +
+        `(${pricing.cheapest.name ?? '?'} at ${pricing.cheapest.price}), ` +
+        `got ${substituted.species_id} (${substituted.species_name ?? '?'})`,
+    );
+  }
+  return { trees, payment_id: data.payment_id };
 }
 
 /** Test-only: reset caches between unit tests. */

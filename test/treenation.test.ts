@@ -1,7 +1,12 @@
 import { mockClient } from 'aws-sdk-client-mock';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import { DynamoDBDocumentClient, UpdateCommand } from '@aws-sdk/lib-dynamodb';
-import { withinBudget, plantTrees, _resetTreeNationCachesForTest } from '../src/lib/treenation';
+import {
+  withinBudget,
+  plantTrees,
+  fetchProjectPricing,
+  _resetTreeNationCachesForTest,
+} from '../src/lib/treenation';
 import { reserveGlobalTreeBudget } from '../src/lib/dynamo';
 
 const smMock = mockClient(SecretsManagerClient);
@@ -13,21 +18,28 @@ function conditionalFailure(): Error {
   });
 }
 
-/** Route the mocked fetch by URL: project species list (GET) vs plant (POST). */
+type SpeciesRow = { id: number; name?: string; price: number; stock: number };
+
+/**
+ * Route the mocked fetch by URL: project species list (GET) vs plant (POST).
+ * `plantedSpeciesId` lets a test simulate Tree-Nation substituting a species.
+ */
 function mockFetch(
-  species: Array<{ price: number; stock: number }> | 'error' | 'malformed',
-  plantStatus = 200,
+  species: SpeciesRow[] | 'error' | 'malformed',
+  opts: { plantStatus?: number; plantedSpeciesId?: number } = {},
 ) {
-  global.fetch = jest.fn(async (input: unknown) => {
+  const { plantStatus = 200, plantedSpeciesId } = opts;
+  global.fetch = jest.fn(async (input: unknown, init?: { body?: string }) => {
     const url = String(input);
     if (url.includes('/species')) {
       if (species === 'error') return { ok: false, status: 500 } as unknown as Response;
       if (species === 'malformed') {
-        return { ok: true, json: async () => [{ price: 'oops' }] } as unknown as Response;
+        return { ok: true, json: async () => [{ id: 1, price: 'oops' }] } as unknown as Response;
       }
       return { ok: true, json: async () => species } as unknown as Response;
     }
-    // /api/plant
+    // /api/plant — echoes back the requested species unless told to substitute.
+    const requested = JSON.parse(init?.body ?? '{}');
     return {
       ok: plantStatus >= 200 && plantStatus < 300,
       status: plantStatus,
@@ -39,7 +51,8 @@ function mockFetch(
             token: 'tok',
             collect_url: 'https://tree-nation.com/collect/tok',
             certificate_url: 'https://tree-nation.com/certificate/tok',
-            species_id: 1342,
+            species_id: plantedSpeciesId ?? requested.species_id,
+            species_name: 'Ceriops tagal',
           },
         ],
         payment_id: 5,
@@ -59,35 +72,35 @@ beforeEach(() => {
   smMock.on(GetSecretValueCommand).resolves({ SecretString: 'live-token' });
 });
 
-// Tree-Nation ignores species_id and picks for us, so the guard must bound the
-// WORST case across everything it could pick — not the price of any one species.
+// We ask for the cheapest in-stock species, but Tree-Nation can substitute, so
+// the guard bounds the WORST case across everything it could pick.
 describe('withinBudget (worst-case guard, invariant: fail = do not spend)', () => {
   test('true when every in-stock species is at/under the cap', async () => {
     mockFetch([
-      { price: 0.35, stock: 48544 },
-      { price: 0.5, stock: 74142 },
+      { id: 3657, price: 0.35, stock: 48544 },
+      { id: 2086, price: 0.5, stock: 74142 },
     ]);
     expect(await withinBudget()).toBe(true);
   });
 
   test('false when ANY in-stock species exceeds the cap', async () => {
     mockFetch([
-      { price: 0.35, stock: 48544 },
-      { price: 14, stock: 500 }, // Tree-Nation could pick this one
+      { id: 3657, price: 0.35, stock: 48544 },
+      { id: 56, price: 14, stock: 500 }, // Tree-Nation could substitute this one
     ]);
     expect(await withinBudget()).toBe(false);
   });
 
   test('an out-of-stock expensive species is ignored (it cannot be picked)', async () => {
     mockFetch([
-      { price: 0.35, stock: 48544 },
-      { price: 14, stock: 0 },
+      { id: 3657, price: 0.35, stock: 48544 },
+      { id: 56, price: 14, stock: 0 },
     ]);
     expect(await withinBudget()).toBe(true);
   });
 
   test('false when nothing is in stock at all', async () => {
-    mockFetch([{ price: 0.35, stock: 0 }]);
+    mockFetch([{ id: 3657, price: 0.35, stock: 0 }]);
     expect(await withinBudget()).toBe(false);
   });
 
@@ -102,11 +115,28 @@ describe('withinBudget (worst-case guard, invariant: fail = do not spend)', () =
   });
 });
 
-const inStock = [{ price: 0.35, stock: 48544 }];
+describe('fetchProjectPricing (cheapest selection)', () => {
+  test('picks the cheapest IN-STOCK species, not the cheapest overall', async () => {
+    mockFetch([
+      { id: 1342, name: 'Albizia gummifera', price: 0.2, stock: 0 }, // cheapest but unplantable
+      { id: 3657, name: 'Ceriops tagal', price: 0.35, stock: 124986 },
+      { id: 2086, name: 'Ocotea usambarensis', price: 0.5, stock: 74142 },
+    ]);
+    const pricing = await fetchProjectPricing();
+    expect(pricing?.cheapest.id).toBe(3657);
+    expect(pricing?.cheapest.price).toBe(0.35);
+    expect(pricing?.worstCase).toBe(0.5);
+  });
+});
+
+const inStock: SpeciesRow[] = [
+  { id: 3657, name: 'Ceriops tagal', price: 0.35, stock: 124986 },
+  { id: 2086, name: 'Ocotea usambarensis', price: 0.5, stock: 74142 },
+];
 
 describe('plantTrees', () => {
   test('does NOT call the plant endpoint when the guard fails', async () => {
-    mockFetch([{ price: 2, stock: 100 }]);
+    mockFetch([{ id: 56, price: 2, stock: 100 }]);
     const result = await plantTrees({ internalId: 'sub-1', quantity: 1 });
     expect(result).toBeNull();
     const calls = (global.fetch as jest.Mock).mock.calls.map((c) => String(c[0]));
@@ -130,13 +160,42 @@ describe('plantTrees', () => {
     expect(body.recipients[0].email).toBeUndefined();
   });
 
-  test('does not send species_id — the API ignores it and picks for us', async () => {
+  test('requests the CHEAPEST in-stock species (0.35, not the 0.50 one)', async () => {
     mockFetch(inStock);
     await plantTrees({ internalId: 'sub-1', quantity: 1 });
     const plantCall = (global.fetch as jest.Mock).mock.calls.find((c) =>
       String(c[0]).includes('/api/plant'),
     );
-    expect(JSON.parse(plantCall![1].body).species_id).toBeUndefined();
+    expect(JSON.parse(plantCall![1].body).species_id).toBe(3657);
+  });
+
+  test('never requests an out-of-stock species — that is what triggers substitution', async () => {
+    mockFetch([
+      { id: 1342, price: 0.35, stock: 0 }, // the id we used to hardcode
+      { id: 3657, price: 0.35, stock: 124986 },
+    ]);
+    await plantTrees({ internalId: 'sub-1', quantity: 1 });
+    const plantCall = (global.fetch as jest.Mock).mock.calls.find((c) =>
+      String(c[0]).includes('/api/plant'),
+    );
+    expect(JSON.parse(plantCall![1].body).species_id).toBe(3657);
+  });
+
+  test('logs loudly when Tree-Nation substitutes a different species', async () => {
+    const spy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    mockFetch(inStock, { plantedSpeciesId: 2086 }); // we asked 3657, got the 0.50 one
+    const result = await plantTrees({ internalId: 'sub-1', quantity: 1 });
+    expect(result?.trees[0].species_id).toBe(2086);
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining('substituted species'));
+    spy.mockRestore();
+  });
+
+  test('stays quiet when it gets the species it asked for', async () => {
+    const spy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    mockFetch(inStock);
+    await plantTrees({ internalId: 'sub-1', quantity: 1 });
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
   });
 
   test('quantity 0 is a no-op that spends nothing', async () => {
@@ -147,7 +206,7 @@ describe('plantTrees', () => {
   });
 
   test('throws on an API error so the caller can reconcile', async () => {
-    mockFetch(inStock, 500);
+    mockFetch(inStock, { plantStatus: 500 });
     await expect(plantTrees({ internalId: 'sub-1', quantity: 1 })).rejects.toThrow();
   });
 });
