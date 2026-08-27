@@ -48,6 +48,45 @@ final class EntitlementService {
 
     enum Plan { case annual, monthly }
 
+    /// Display pricing for a plan, taken from StoreKit so it is correct in every
+    /// storefront and currency — never hardcoded (App Store Guideline 3.1.2).
+    /// `perMonth` and `savingsPercent` describe the annual plan's monthly-equivalent
+    /// and its saving versus the monthly plan.
+    struct PlanPrice {
+        let total: String
+        let perMonth: String?
+        let savingsPercent: Int?
+    }
+
+    /// Pricing for a plan, or `nil` until the offering has loaded. Reads the
+    /// observed packages, so a SwiftUI view calling this refreshes when they arrive.
+    func price(for plan: Plan) -> PlanPrice? {
+        // Dev/preview only: StoreKit is not wired under mock auth, so show
+        // representative sample values. A real build has useMockAuth == false and
+        // never takes this path.
+        if AppConfig.useMockAuth {
+            return plan == .annual
+                ? PlanPrice(total: "$39.99", perMonth: "$3.33", savingsPercent: 58)
+                : PlanPrice(total: "$7.99", perMonth: nil, savingsPercent: nil)
+        }
+        guard let package = (plan == .annual ? annualPackage : monthlyPackage) else { return nil }
+        let product = package.storeProduct
+        guard plan == .annual else {
+            return PlanPrice(total: product.localizedPriceString, perMonth: nil, savingsPercent: nil)
+        }
+        // Annual: derive the monthly-equivalent and saving, formatted in the
+        // product's own currency via its StoreKit price formatter.
+        let perMonthValue = product.price / 12
+        let perMonth = product.priceFormatter?.string(from: perMonthValue as NSDecimalNumber)
+        var savings: Int?
+        if let monthly = monthlyPackage?.storeProduct.price, monthly > 0 {
+            let ratio = ((monthly - perMonthValue) / monthly) as NSDecimalNumber
+            let pct = Int(ratio.doubleValue * 100)
+            if pct > 0 { savings = pct }
+        }
+        return PlanPrice(total: product.localizedPriceString, perMonth: perMonth, savingsPercent: savings)
+    }
+
     /// Purchase / start the trial. Returns true if it resulted in an active entitlement.
     @discardableResult
     func purchase(_ plan: Plan) async throws -> Bool {

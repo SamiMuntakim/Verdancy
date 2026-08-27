@@ -10,6 +10,18 @@ struct PaywallView: View {
     @State private var isWorking = false
     @State private var error: String?
 
+    // Prices come from StoreKit via RevenueCat, never hardcoded (Guideline 3.1.2).
+    private var annualPrice: EntitlementService.PlanPrice? { app.entitlement.price(for: .annual) }
+    private var monthlyPrice: EntitlementService.PlanPrice? { app.entitlement.price(for: .monthly) }
+    private var priceUnavailable: Bool { (plan == .annual ? annualPrice : monthlyPrice) == nil }
+
+    private func annualSubtitle(_ price: EntitlementService.PlanPrice?) -> String {
+        if let perMonth = price?.perMonth {
+            return "7-day free trial · just \(perMonth)/mo, billed yearly"
+        }
+        return "7-day free trial · billed yearly"
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -38,11 +50,11 @@ struct PaywallView: View {
                     SocialProofCard()
 
                     VStack(spacing: Theme.Space.m) {
-                        PlanRow(title: "Annual", price: "$39.99 / yr",
-                                subtitle: "7-day free trial · just $3.33/mo, billed yearly",
-                                badge: "SAVE 58%",
+                        PlanRow(title: "Annual", price: annualPrice?.total ?? "—",
+                                subtitle: annualSubtitle(annualPrice),
+                                badge: annualPrice?.savingsPercent.map { "SAVE \($0)%" },
                                 selected: plan == .annual) { plan = .annual }
-                        PlanRow(title: "Monthly", price: "$7.99 / mo",
+                        PlanRow(title: "Monthly", price: monthlyPrice?.total ?? "—",
                                 subtitle: "Flexible, month to month",
                                 badge: nil,
                                 selected: plan == .monthly) { plan = .monthly }
@@ -51,11 +63,12 @@ struct PaywallView: View {
                     Button {
                         Task { await subscribe() }
                     } label: {
-                        Text(isWorking ? "Starting…"
+                        Text(priceUnavailable ? "Loading plans…"
+                             : isWorking ? "Starting…"
                              : plan == .annual ? "Start my 7-day free trial" : "Subscribe monthly")
                     }
                     .buttonStyle(.primary)
-                    .disabled(isWorking)
+                    .disabled(isWorking || priceUnavailable)
 
                     if let error {
                         Text(error).font(.footnote).foregroundStyle(Theme.Color.danger)
