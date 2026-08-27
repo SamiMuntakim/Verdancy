@@ -558,6 +558,7 @@ describe('GET /me/trees & POST /users', () => {
     ddbMock.on(GetCommand).resolves({
       Item: { trees_pledged: 3, milestones: new Set(['a', 'b']) },
     });
+    ddbMock.on(QueryCommand).resolves({ Items: [] }); // no planted-tree records yet
     const res = await run({ routeKey: 'GET /me/trees' });
     expect(res.statusCode).toBe(200);
     expect(bodyOf(res).trees_pledged).toBe(3);

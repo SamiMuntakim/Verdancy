@@ -25,6 +25,8 @@ import {
   deletePlantAndPhotos,
   deleteAllUserItems,
   recordMilestone,
+  recordCheckin,
+  listTreeRecords,
   getTrees,
   getBuddiesForSpecies,
   getOrCreateReferralCode,
@@ -37,9 +39,12 @@ import {
 import { presignPut, presignGet, deleteObjects, deleteByPrefix } from '../lib/s3';
 import { deleteCognitoUser } from '../lib/cognito';
 import { identify, diagnose, generateCarePlan, type CarePlanInputs } from '../lib/gemini';
+import { grantTrees } from '../lib/planting';
 
 const FREE_DAILY_AI_LIMIT = () => intEnv('FREE_DAILY_AI_LIMIT', 2);
 const SUBSCRIBER_DAILY_AI_LIMIT = () => intEnv('SUBSCRIBER_DAILY_AI_LIMIT', 50);
+/** One tree per N-day streak (30, 60, 90, …) — for every user, free or paid. */
+const STREAK_TREE_INTERVAL = () => intEnv('STREAK_TREE_INTERVAL', 30);
 // Defense-in-depth on cost: the app resizes to ~1MP (~250KB) before sending, so
 // anything past ~5MB of base64 is rejected before we reserve quota or call Gemini.
 const MAX_IMAGE_BASE64_CHARS = 7_000_000;
@@ -282,7 +287,44 @@ async function handleMilestone(sub: string, event: APIGatewayProxyEventV2WithJWT
 }
 
 async function handleGetTrees(sub: string) {
-  return json(200, await getTrees(sub));
+  const [trees, planted] = await Promise.all([getTrees(sub), listTreeRecords(sub)]);
+  return json(200, {
+    ...trees,
+    // Real Tree-Nation plantings — each with its own certificate the user can view.
+    planted: planted.map((t) => ({
+      collect_url: t.collect_url,
+      certificate_url: t.certificate_url,
+      species_name: t.species_name,
+      project_name: t.project_name,
+      reason: t.reason,
+      planted_at: t.planted_at,
+    })),
+  });
+}
+
+/**
+ * Daily check-in — the ONLY thing that advances a streak, and it's computed
+ * entirely server-side (see `recordCheckin`). Streak trees are free to every
+ * user, so a client must never be able to assert a streak: the server stamps
+ * the UTC date, collapses repeat calls within a day, and therefore requires 30
+ * distinct real days before a tree is funded.
+ */
+async function handleCheckin(sub: string) {
+  const meta = await getMetadata(sub);
+  if (meta?.blocked) throw new ApiError(403, 'Account is blocked');
+
+  const { streak, advanced } = await recordCheckin(sub);
+  let treeGranted = false;
+  if (advanced && streak > 0 && streak % STREAK_TREE_INTERVAL() === 0) {
+    treeGranted = await grantTrees({
+      sub,
+      milestoneId: `streak_${streak}`,
+      quantity: 1,
+      reason: `streak_${streak}`,
+      message: `${streak} days of plant care 🌱`,
+    });
+  }
+  return json(200, { streak, tree_granted: treeGranted });
 }
 
 async function handlePatchPlant(sub: string, event: APIGatewayProxyEventV2WithJWTAuthorizer) {
@@ -375,6 +417,8 @@ export const handler = async (
         return await handleListPhotos(sub, event);
       case 'POST /milestones':
         return await handleMilestone(sub, event);
+      case 'POST /checkin':
+        return await handleCheckin(sub);
       case 'GET /me/trees':
         return await handleGetTrees(sub);
       case 'GET /me/referral':

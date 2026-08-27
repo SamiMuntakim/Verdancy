@@ -1,8 +1,13 @@
+// Planting is mocked here so these tests stay focused on entitlement + the
+// one-time referral claim; real tree-granting is covered in webhook-trees.test.ts.
+jest.mock('../src/lib/planting', () => ({ grantTrees: jest.fn().mockResolvedValue(true) }));
+
 import { mockClient } from 'aws-sdk-client-mock';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import { DynamoDBDocumentClient, UpdateCommand, GetCommand } from '@aws-sdk/lib-dynamodb';
 import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from 'aws-lambda';
 import { handler, _clearSecretCacheForTest } from '../src/handlers/webhook';
+import { grantTrees } from '../src/lib/planting';
 
 const smMock = mockClient(SecretsManagerClient);
 const ddbMock = mockClient(DynamoDBDocumentClient);
@@ -116,16 +121,17 @@ describe('referral credit on first purchase (iOS-PRD §10)', () => {
     const res = await call({ authorization: SECRET }, initialPurchase);
     expect(res.statusCode).toBe(200);
 
-    // setEntitlement + markReferralCredited + two milestone credits.
+    // setEntitlement + markReferralCredited (the one-time claim).
     const updates = ddbMock.commandCalls(UpdateCommand).map((c) => c.args[0].input);
-    expect(updates).toHaveLength(4);
-    const milestoneIds = updates.map((u) => u.ExpressionAttributeValues?.[':mid']).filter(Boolean);
-    expect(milestoneIds).toContain('referral_joined');
-    expect(milestoneIds).toContain(`referral_${'buyer-sub'.slice(0, 12)}`);
-    const milestoneKeys = updates
-      .filter((u) => u.ExpressionAttributeValues?.[':mid'])
-      .map((u) => u.Key?.PK);
-    expect(milestoneKeys).toEqual(expect.arrayContaining(['USER#buyer-sub', 'USER#inviter-sub']));
+    expect(updates).toHaveLength(2);
+    expect(updates.some((u) => u.UpdateExpression?.includes('referral_credited'))).toBe(true);
+
+    // …and a tree granted to each side, under its own milestone id.
+    const grants = (grantTrees as jest.Mock).mock.calls.map((c) => c[0]);
+    expect(grants.map((g) => g.milestoneId)).toEqual(
+      expect.arrayContaining(['referral_joined', `referral_${'buyer-sub'.slice(0, 12)}`]),
+    );
+    expect(grants.map((g) => g.sub)).toEqual(expect.arrayContaining(['buyer-sub', 'inviter-sub']));
   });
 
   test('no referral → only the entitlement write', async () => {

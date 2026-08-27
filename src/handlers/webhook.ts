@@ -2,7 +2,8 @@ import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda
 import { timingSafeEqual } from 'node:crypto';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import { json, parseJsonBody } from '../lib/http';
-import { setEntitlement, getMetadata, markReferralCredited, recordMilestone } from '../lib/dynamo';
+import { setEntitlement, getMetadata, markReferralCredited } from '../lib/dynamo';
+import { grantTrees } from '../lib/planting';
 
 /**
  * RevenueCat webhook Lambda. This is the ONLY unauthenticated route (no Cognito
@@ -38,9 +39,38 @@ const ACTIVATE = new Set(['INITIAL_PURCHASE', 'RENEWAL', 'PRODUCT_CHANGE', 'UNCA
 const DEACTIVATE = new Set(['EXPIRATION', 'CANCELLATION', 'BILLING_ISSUE']);
 
 interface RevenueCatEvent {
+  id?: string;
   type?: string;
   app_user_id?: string;
+  product_id?: string;
   expiration_at_ms?: number;
+}
+
+/**
+ * Tree grants (real Tree-Nation plantings, funded by us):
+ *   - ANNUAL subscription (initial purchase or renewal) → 10 trees, per period.
+ *   - Monthly (`verdancy_monthly`) → none.
+ *   - A referred friend's first purchase → 1 tree for them, 1 for the inviter.
+ */
+const ANNUAL_PRODUCT_ID = process.env.ANNUAL_PRODUCT_ID ?? 'verdancy_annual';
+const ANNUAL_TREES = 10;
+
+/**
+ * Plant the annual grant. The milestone id is unique per RevenueCat event, so a
+ * retried/duplicate delivery of the SAME event can't double-plant, while each
+ * real renewal is a new event and grants a fresh 10 trees.
+ */
+async function grantAnnualTrees(event: RevenueCatEvent, sub: string): Promise<void> {
+  if (event.product_id !== ANNUAL_PRODUCT_ID) return; // monthly grants nothing
+  const periodKey = event.id ?? String(event.expiration_at_ms ?? '');
+  if (!periodKey) return;
+  await grantTrees({
+    sub,
+    milestoneId: `annual_${periodKey}`,
+    quantity: ANNUAL_TREES,
+    reason: 'annual_subscription',
+    message: 'Thank you for growing with Verdancy 🌱',
+  });
 }
 
 function toEpochSeconds(ms: unknown): number | null {
@@ -59,10 +89,22 @@ async function creditReferralIfAny(sub: string): Promise<void> {
   if (!inviter || meta?.referral_credited) return;
   if (!(await markReferralCredited(sub))) return; // someone else claimed it
 
-  // One tree for the new subscriber…
-  await recordMilestone(sub, 'referral_joined');
+  // One real tree for the new subscriber…
+  await grantTrees({
+    sub,
+    milestoneId: 'referral_joined',
+    quantity: 1,
+    reason: 'referral_joined',
+    message: 'Welcome to Verdancy 🌱',
+  });
   // …and one for the inviter, unique per referred friend.
-  await recordMilestone(inviter, `referral_${sub.slice(0, 12)}`);
+  await grantTrees({
+    sub: inviter,
+    milestoneId: `referral_${sub.slice(0, 12)}`,
+    quantity: 1,
+    reason: 'referral_invited',
+    message: 'Thanks for growing the forest 🌱',
+  });
 }
 
 export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGatewayProxyResultV2> => {
@@ -97,6 +139,12 @@ export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGateway
   try {
     if (ACTIVATE.has(type)) {
       await setEntitlement(appUserId, true, toEpochSeconds(rcEvent.expiration_at_ms));
+      if (type === 'INITIAL_PURCHASE' || type === 'RENEWAL') {
+        // Best-effort: a planting failure must not fail the entitlement ack.
+        await grantAnnualTrees(rcEvent, appUserId).catch(() => {
+          console.error('Annual tree grant failed');
+        });
+      }
       if (type === 'INITIAL_PURCHASE') {
         // Best-effort: a referral-credit failure must not fail the entitlement ack.
         await creditReferralIfAny(appUserId).catch(() => {
