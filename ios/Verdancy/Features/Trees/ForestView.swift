@@ -160,18 +160,15 @@ private struct PlantedTreeRow: View {
     }
 
     /// Real photo of the species when the partner supplied one; leaf glyph otherwise.
+    /// Species repeat across rows and launches (a forest is often one or two
+    /// species), so this goes through the same on-disk cache as plant photos —
+    /// keyed by the stable CDN URL — rather than re-downloading every appearance.
     @ViewBuilder
     private var speciesThumbnail: some View {
-        if let url = tree.speciesImageURL {
-            AsyncImage(url: url) { phase in
-                if case .success(let image) = phase {
-                    image.resizable().scaledToFill()
-                } else {
-                    thumbnailFallback
-                }
-            }
-            .frame(width: 44, height: 44)
-            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.chip))
+        if let image = tree.speciesImage {
+            CachedAsyncImage(imageRef: image, downloadURL: image)
+                .frame(width: 44, height: 44)
+                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.chip))
         } else {
             thumbnailFallback
                 .frame(width: 44, height: 44)
