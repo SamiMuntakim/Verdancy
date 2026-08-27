@@ -33,15 +33,15 @@ struct RootView: View {
             }
         }
         .overlay(alignment: .top) {
-            if let total = app.treeCelebrationCount {
-                TreeEarnedBanner(total: total)
-                    .task {
+            if let celebration = app.treeCelebration {
+                TreeEarnedBanner(celebration: celebration)
+                    .task(id: celebration.id) {
                         try? await Task.sleep(for: .seconds(3))
-                        app.treeCelebrationCount = nil
+                        app.treeCelebration = nil
                     }
             }
         }
-        .animation(.spring(response: 0.5, dampingFraction: 0.8), value: app.treeCelebrationCount)
+        .animation(.spring(response: 0.5, dampingFraction: 0.8), value: app.treeCelebration)
     }
 }
 

@@ -21,8 +21,8 @@ final class AppModel {
     var firstRunActive = false
     /// Fires the one-time bloom reveal after a successful subscribe (iOS-PRD §8.4).
     var pendingBloom = false
-    /// Set to the new tree total when a milestone tree is earned → transient banner.
-    var treeCelebrationCount: Int?
+    /// Set when a tree is earned (milestone or care streak) → transient banner.
+    var treeCelebration: TreeCelebration?
     /// Appearance override (iOS-PRD §3.4), persisted across launches.
     var appearance: Appearance =
         Appearance(rawValue: UserDefaults.standard.string(forKey: appearanceKey) ?? "") ?? .system
@@ -114,14 +114,54 @@ final class AppModel {
                     milestones: garden.trees.milestones + [id])
             } else {
                 guard let status = try? await api.recordMilestone(id) else { continue }
-                garden.trees = status
+                garden.applyTrees(status)
             }
             reported.insert(id)
             reportedMilestones = reported
-            treeCelebrationCount = totalTrees
+            treeCelebration = TreeCelebration(total: totalTrees, streakDays: nil)
             Analytics.log("milestone_earned", ["id": id])
             Haptics.celebrate()
         }
+    }
+
+    // MARK: - Daily check-in (POST /checkin)
+
+    /// The UTC day of the last successful check-in. The server keys the streak on
+    /// its own UTC date, so this dedupe must use UTC too — a local-day key would
+    /// skip the first foreground after a UTC rollover.
+    private var lastCheckinDay: Date?
+    private var checkinInFlight = false
+
+    private static let utcCalendar: Calendar = {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
+        return cal
+    }()
+
+    /// `POST /checkin` on every launch and foreground: the server advances the care
+    /// streak from its own UTC date and tells us whether that earned a tree. Repeat
+    /// calls in a day are a safe no-op server-side; we still skip the redundant
+    /// round-trip. Failures are silent — the local streak simply stands.
+    func checkIn() async {
+        guard phase == .signedIn, !AppConfig.useMockAuth, !checkinInFlight else { return }
+        let today = Self.utcCalendar.startOfDay(for: Date())
+        guard lastCheckinDay != today else { return }
+        checkinInFlight = true
+        defer { checkinInFlight = false }
+
+        guard let result = try? await api.checkin() else { return }
+        lastCheckinDay = today
+        streak.applyServer(result.streak)
+        publishWidgetSummary()
+        await notifications.reschedule(for: garden.plants, streak: streak.current)
+
+        guard result.treeGranted else { return }
+        // The grant lands server-side, so re-read the authoritative tree status
+        // rather than incrementing a local counter.
+        if let status = try? await api.trees() { garden.applyTrees(status) }
+        treeCelebration = TreeCelebration(total: totalTrees, streakDays: result.streak)
+        Analytics.log("streak_tree_earned", ["streak": "\(result.streak)"])
+        Haptics.celebrate()
     }
 
     func bootstrap() async {
@@ -133,6 +173,7 @@ final class AppModel {
             if let sub = await auth.userId() { await entitlement.login(userId: sub) }
             await garden.refresh()
             await fetchReferralCode()
+            await checkIn()
         } else {
             phase = .signedOut
         }
@@ -165,6 +206,7 @@ final class AppModel {
         // whose garden already has plants, or anyone who's finished it before, skips
         // straight to the app.
         firstRunActive = !firstRunComplete && garden.plants.isEmpty
+        await checkIn()
     }
 
     private static let firstRunKey = "verdancy.firstRunComplete"
@@ -225,11 +267,23 @@ final class AppModel {
         WidgetCenter.shared.reloadAllTimelines()
         notifications.cancelAll()
         UserDefaults.standard.removeObject(forKey: reportedKey)
+        streak.reset()
         garden.plants = []
         garden.trees = .empty
         knewPlants = false
-        treeCelebrationCount = nil
+        lastCheckinDay = nil
+        treeCelebration = nil
         referralCode = nil
         phase = .signedOut
     }
+}
+
+/// A tree the user just earned — milestone or care streak (iOS-PRD §10). Carries
+/// `streakDays` when the check-in streak is what earned it, so the banner can name
+/// the reason instead of showing a generic total.
+struct TreeCelebration: Equatable, Identifiable {
+    let total: Int
+    let streakDays: Int?
+
+    var id: String { "\(total)-\(streakDays ?? -1)" }
 }

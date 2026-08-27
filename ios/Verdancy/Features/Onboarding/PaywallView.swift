@@ -78,7 +78,10 @@ struct PaywallView: View {
                     }
                     .font(.footnote)
                     .foregroundStyle(Theme.Color.textSecondary)
-                    Text("No charge until your free trial ends — cancel in two taps. Your 10 trees are planted across your first year.")
+                    // Only the annual plan funds the 10 trees, so only promise them there.
+                    Text(plan == .annual
+                         ? "No charge until your free trial ends — cancel in two taps. Your 10 trees are funded when your first year starts."
+                         : "Cancel in two taps.")
                         .font(.caption2).multilineTextAlignment(.center)
                         .foregroundStyle(Theme.Color.textSecondary)
                 }
@@ -134,7 +137,7 @@ struct SocialProofCard: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Real trees, publicly counted")
                         .font(.subheadline.weight(.semibold))
-                    Text("Planted with \(AppConfig.plantingPartner) — every tree shows on our live public counter.")
+                    Text("Funded through \(AppConfig.plantingPartner) — each tree comes with its own certificate.")
                         .font(.caption)
                         .foregroundStyle(Theme.Color.textSecondary)
                 }
@@ -182,8 +185,8 @@ struct PlanComparison: View {
                 free: nil, premiumValue: nil),
             Row(icon: "flame.fill", label: "Care streaks & stats",
                 free: nil, premiumValue: nil),
-            Row(icon: "tree.fill", label: "Real trees planted",
-                free: nil, premiumValue: "10 +"),
+            Row(icon: "tree.fill", label: "Real trees funded (annual)",
+                free: nil, premiumValue: "10 / yr"),
         ]
     }
 

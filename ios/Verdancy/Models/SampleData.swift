@@ -74,7 +74,20 @@ extension Plant {
 }
 
 extension TreeStatus {
-    static let sample = TreeStatus(treesPledged: 3, milestones: ["first_plant", "fifth_plant"])
+    static let sample = TreeStatus(
+        treesPledged: 3, milestones: ["first_plant", "fifth_plant"],
+        planted: [
+            PlantedTree(
+                collectUrl: "https://tree-nation.com/collect/sample-1",
+                certificateUrl: "https://tree-nation.com/certificate/sample-1",
+                speciesName: "Moringa oleifera", projectName: "Usambara Biodiversity Reserve",
+                reason: "streak_7", plantedAt: "2026-08-20T09:12:00.000Z"),
+            PlantedTree(
+                collectUrl: "https://tree-nation.com/collect/sample-2",
+                certificateUrl: "https://tree-nation.com/certificate/sample-2",
+                speciesName: "Acacia nilotica", projectName: "Mount Kenya Reforestation",
+                reason: "first_plant", plantedAt: "2026-08-06T17:40:00.000Z"),
+        ])
 }
 
 extension CareCard {

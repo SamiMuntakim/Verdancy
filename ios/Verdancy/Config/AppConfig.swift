@@ -40,7 +40,9 @@ enum AppConfig {
     static let freeDailyScanCount = 2
 
     /// Named planting partner (iOS-PRD §10: provably real trees, never vague).
-    static let plantingPartner = "One Tree Planted"
+    /// Trees are funded through Tree-Nation, which issues a certificate per tree.
+    /// This must name the partner we actually plant with — see `docs/tree-nation-api.md`.
+    static let plantingPartner = "Tree-Nation"
 
     /// Flip on once real App Store reviews exist — never show fabricated social
     /// proof. Gates the rating row on the paywall.

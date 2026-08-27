@@ -106,6 +106,13 @@ final class APIClient {
         try await send(Endpoint("GET", "/me/trees"), as: TreeStatus.self)
     }
 
+    /// Daily check-in — advances the care streak and may grant a streak tree. The
+    /// server computes the streak from its own UTC date and takes no body, so
+    /// calling it more than once a day is a safe no-op (once per launch/foreground).
+    func checkin() async throws -> CheckinResponse {
+        try await send(Endpoint("POST", "/checkin"), as: CheckinResponse.self)
+    }
+
     func buddy(species: String) async throws -> BuddyResponse {
         try await send(Endpoint("POST", "/buddy", body: encode(BuddyRequest(species: species))),
                        as: BuddyResponse.self)

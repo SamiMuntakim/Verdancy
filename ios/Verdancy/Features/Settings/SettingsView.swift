@@ -53,8 +53,14 @@ struct SettingsView: View {
 
                 Section("Your impact") {
                     LabeledContent("Trees pledged", value: "\(totalTrees)")
+                    LabeledContent("Care streak", value: streakLabel)
+                    NavigationLink {
+                        ForestView()
+                    } label: {
+                        Label(forestLabel, systemImage: "tree.fill")
+                    }
                     ForEach(app.garden.trees.milestones, id: \.self) { milestone in
-                        Label(milestoneLabel(milestone), systemImage: "tree.fill")
+                        Label(milestoneLabel(milestone), systemImage: "checkmark.seal.fill")
                     }
                     Link("View the public tree counter", destination: AppConfig.treeCounterURL)
                 }
@@ -128,6 +134,18 @@ struct SettingsView: View {
 
     private var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+    }
+
+    private var streakLabel: String {
+        let days = app.streak.current
+        return days == 1 ? "1 day" : "\(days) days"
+    }
+
+    /// The real, certificate-backed plantings — distinct from the pledge count above.
+    private var forestLabel: String {
+        let count = app.garden.trees.plantings.count
+        guard count > 0 else { return "Your forest" }
+        return "Your forest — \(count) planted"
     }
 
     private func milestoneLabel(_ id: String) -> String {
