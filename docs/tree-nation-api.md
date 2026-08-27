@@ -82,7 +82,7 @@ Body:
 - `quantity` (top-level) — trees per trigger
 - `language` — email language
 - `message` (optional) — text shown under the tree when the recipient collects it
-- `species_id` (optional, per KB overview) — include to pick a species (cost control, e.g. 518); omit → selected **by price**. **NOT shown in the example body — confirm it's accepted on this call before relying on it for cost control.**
+- ~~`species_id`~~ — **ignored on this endpoint** (verified live; see below). Tree-Nation picks the species from the account's project. We don't send it.
 
 Example:
 
