@@ -61,4 +61,10 @@ enum AppConfig {
     static let termsURL = URL(string: "\(siteBaseURL)/terms.html")!
     static let supportURL = URL(string: "\(siteBaseURL)/support.html")!
     static let treeCounterURL = URL(string: "\(siteBaseURL)/trees.html")!
+
+    /// Where "plant more trees" sends people. A planted tree is a real-world
+    /// good/service consumed outside the app, which App Review Guideline 3.1.5(a)
+    /// says must NOT go through in-app purchase — so this is a web destination,
+    /// not a StoreKit product.
+    static let plantTreeURL = URL(string: "https://tree-nation.com/plant")!
 }

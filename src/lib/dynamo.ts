@@ -55,6 +55,8 @@ export interface UserMetadata {
   /** Server-stamped UTC date of the last check-in (never client-supplied). */
   last_active_date?: string;
   current_streak?: number;
+  /** Care tasks completed while genuinely due — the on-time milestone counter. */
+  care_on_time?: number;
 }
 
 export async function getMetadata(sub: string): Promise<UserMetadata | undefined> {
@@ -258,9 +260,13 @@ export async function listPlants(sub: string): Promise<PlantRecord[]> {
  * Update `care.<type>.last_done_at`. Conditioned on the item existing — since the
  * PK is scoped to the caller, a missing item means the plant isn't theirs → 404.
  */
-export async function touchCare(sub: string, plantId: string, type: string): Promise<void> {
+export async function touchCare(
+  sub: string,
+  plantId: string,
+  type: string,
+): Promise<{ onTime: boolean }> {
   try {
-    await ddb.send(
+    const res = await ddb.send(
       new UpdateCommand({
         TableName: table(),
         Key: { PK: userPk(sub), SK: plantSk(plantId) },
@@ -268,12 +274,52 @@ export async function touchCare(sub: string, plantId: string, type: string): Pro
         ConditionExpression: 'attribute_exists(SK)',
         ExpressionAttributeNames: { '#t': type },
         ExpressionAttributeValues: { ':now': nowIso() },
+        // ALL_OLD gives us the state BEFORE this write, which is the only way to
+        // tell "this task was actually due" from "they tapped done again".
+        ReturnValues: 'ALL_OLD',
       }),
     );
+    return { onTime: wasDue(res.Attributes, type) };
   } catch (err) {
     if (isConditionalFailure(err)) throw new ApiError(404, 'Plant not found');
     throw err;
   }
+}
+
+/**
+ * Was this care task genuinely due when it was completed?
+ *
+ * Only scheduled tasks count — a plant with no cadence has no notion of "due" —
+ * and the answer comes from the plant's own stored schedule, never the client.
+ * That's what makes the on-time counter unfarmable: cadence physically limits
+ * how often a given task can come due, so re-tapping "done" on a watered plant
+ * adds nothing.
+ */
+function wasDue(previous: Record<string, unknown> | undefined, type: string): boolean {
+  const care = previous?.care as Record<string, { cadence_days?: unknown; last_done_at?: unknown }>;
+  const task = care?.[type];
+  const cadence = Number(task?.cadence_days);
+  if (!Number.isFinite(cadence) || cadence <= 0) return false; // unscheduled
+  const last = typeof task?.last_done_at === 'string' ? Date.parse(task.last_done_at) : NaN;
+  if (!Number.isFinite(last)) return true; // never done → the first one counts
+  return Date.now() >= last + cadence * 86_400_000;
+}
+
+/**
+ * Count one on-time care completion and return the new total. Atomic ADD, so
+ * concurrent completions across plants can't lose an increment.
+ */
+export async function bumpOnTimeCare(sub: string): Promise<number> {
+  const res = await ddb.send(
+    new UpdateCommand({
+      TableName: table(),
+      Key: { PK: userPk(sub), SK: META_SK },
+      UpdateExpression: 'ADD care_on_time :one',
+      ExpressionAttributeValues: { ':one': 1 },
+      ReturnValues: 'ALL_NEW',
+    }),
+  );
+  return Number(res.Attributes?.care_on_time) || 0;
 }
 
 export interface PlantUpdates {

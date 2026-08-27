@@ -10,6 +10,7 @@ import SwiftUI
 /// that's what makes it verifiable rather than a number we typed.
 struct MyForestList: View {
     @Environment(AppModel.self) private var app
+    @State private var showPaywall = false
 
     private var trees: TreeStatus { app.garden.trees }
     private var plantings: [PlantedTree] { trees.plantings }
@@ -41,7 +42,27 @@ struct MyForestList: View {
                 }
             }
 
+            Section("How to grow the forest") {
+                EarnTreesSection(trees: trees, isSubscribed: app.isSubscribed) {
+                    showPaywall = true
+                }
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+            }
+
             Section {
+                Link(destination: AppConfig.plantTreeURL) {
+                    Label {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Plant more trees").font(.subheadline.weight(.semibold))
+                            Text("Buy trees directly from \(AppConfig.plantingPartner)")
+                                .font(.caption).foregroundStyle(Theme.Color.textSecondary)
+                        }
+                    } icon: {
+                        Image(systemName: "leaf.circle.fill").foregroundStyle(Theme.Color.leaf)
+                    }
+                }
                 Link("View the public tree counter", destination: AppConfig.treeCounterURL)
             }
         }
@@ -49,6 +70,7 @@ struct MyForestList: View {
         .scrollContentBackground(.hidden)
         .background(Theme.Color.background)
         .refreshable { await app.garden.refresh() }
+        .sheet(isPresented: $showPaywall) { PaywallView() }
         .task { if !app.garden.didLoadOnce { await app.garden.refresh() } }
     }
 }

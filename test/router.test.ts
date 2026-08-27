@@ -551,3 +551,48 @@ describe('GET /me/trees & POST /users', () => {
     expect(input.ExpressionAttributeValues?.[':email']).toBe('me@example.com');
   });
 });
+
+describe('on-time care milestone (interactive, unfarmable)', () => {
+  const careEvent = {
+    routeKey: 'POST /plants/{plantId}/care',
+    pathParameters: { plantId: 'p1' },
+    body: { type: 'water' },
+  };
+  const plantWith = (cadence: number | null, lastDone: string | null) => ({
+    Attributes: { care: { water: { cadence_days: cadence, last_done_at: lastDone } } },
+  });
+
+  test('a genuinely due task counts and reports the running total', async () => {
+    ddbMock
+      .on(UpdateCommand)
+      .resolvesOnce(plantWith(3, '2020-01-01T00:00:00.000Z')) // the care write
+      .resolves({ Attributes: { care_on_time: 7 } }); // the counter bump
+    const res = await run(careEvent);
+    expect(res.statusCode).toBe(200);
+    expect(bodyOf(res).on_time).toBe(true);
+    expect(bodyOf(res).care_on_time).toBe(7);
+  });
+
+  test('re-tapping done on an already-watered plant does NOT count', async () => {
+    // Watered just now on a 3-day cadence: nothing is due, so nothing accrues.
+    ddbMock.on(UpdateCommand).resolves(plantWith(3, new Date().toISOString()));
+    const res = await run(careEvent);
+    expect(bodyOf(res).on_time).toBe(false);
+    expect(bodyOf(res).care_on_time).toBeUndefined();
+  });
+
+  test('an unscheduled task never counts — no cadence means nothing is due', async () => {
+    ddbMock.on(UpdateCommand).resolves(plantWith(null, null));
+    const res = await run(careEvent);
+    expect(bodyOf(res).on_time).toBe(false);
+  });
+
+  test('the first completion of a scheduled task counts', async () => {
+    ddbMock
+      .on(UpdateCommand)
+      .resolvesOnce(plantWith(7, null))
+      .resolves({ Attributes: { care_on_time: 1 } });
+    const res = await run(careEvent);
+    expect(bodyOf(res).on_time).toBe(true);
+  });
+});

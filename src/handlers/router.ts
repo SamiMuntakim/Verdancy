@@ -25,6 +25,7 @@ import {
   deletePlantAndPhotos,
   deleteAllUserItems,
   recordCheckin,
+  bumpOnTimeCare,
   listTreeRecords,
   getTrees,
   getBuddiesForSpecies,
@@ -214,14 +215,38 @@ async function handleListPlants(sub: string) {
   return json(200, { plants: items });
 }
 
+/**
+ * On-time care milestones: a tree at each of these totals. Unlike the streak
+ * (which only asks you to show up) this rewards the app's actual work, and it
+ * can't be farmed — a completion only counts when the plant's own schedule says
+ * the task was due, so cadence caps how fast the counter can move.
+ */
+const CARE_TREE_MILESTONES = [25, 100, 250, 500];
+
 async function handleCare(sub: string, event: APIGatewayProxyEventV2WithJWTAuthorizer) {
   const plantId = pathParam(event, 'plantId');
   const body = parseJsonBody<{ type?: string }>(event);
   if (body.type !== 'water' && body.type !== 'fertilize' && body.type !== 'prune') {
     throw new ApiError(400, 'type must be "water", "fertilize", or "prune"');
   }
-  await touchCare(sub, plantId, body.type); // 404 if the plant isn't the caller's
-  return json(200, { ok: true });
+  // 404 if the plant isn't the caller's; tells us whether it was genuinely due.
+  const { onTime } = await touchCare(sub, plantId, body.type);
+  if (!onTime) return json(200, { ok: true, on_time: false });
+
+  const total = await bumpOnTimeCare(sub);
+  let treeGranted = false;
+  if (CARE_TREE_MILESTONES.includes(total)) {
+    // Best-effort, like every other grant: a planting failure must not fail the
+    // user's care log. The milestone id makes it exactly-once.
+    treeGranted = await grantTrees({
+      sub,
+      milestoneId: `care_${total}`,
+      quantity: 1,
+      reason: `care_${total}`,
+      message: 'Thank you for growing with Verdancy 🌱',
+    });
+  }
+  return json(200, { ok: true, on_time: true, care_on_time: total, tree_granted: treeGranted });
 }
 
 async function handleDeletePlant(sub: string, event: APIGatewayProxyEventV2WithJWTAuthorizer) {
@@ -276,9 +301,20 @@ async function handleListPhotos(sub: string, event: APIGatewayProxyEventV2WithJW
 }
 
 async function handleGetTrees(sub: string) {
-  const [trees, planted] = await Promise.all([getTrees(sub), listTreeRecords(sub)]);
+  const [trees, planted, meta] = await Promise.all([
+    getTrees(sub),
+    listTreeRecords(sub),
+    getMetadata(sub),
+  ]);
+  const careOnTime = Number(meta?.care_on_time) || 0;
   return json(200, {
     ...trees,
+    // Progress toward the earnable milestones, so the Trees tab can show how
+    // close someone is rather than just listing rules at them.
+    care_on_time: careOnTime,
+    next_care_milestone: CARE_TREE_MILESTONES.find((m) => m > careOnTime) ?? null,
+    streak: Number(meta?.current_streak) || 0,
+    streak_tree_interval: STREAK_TREE_INTERVAL(),
     // Real Tree-Nation plantings — certificate + collect URLs are the proof; the
     // species photo, country, project link, and lifetime CO2 make it tangible.
     planted: planted.map((t) => ({

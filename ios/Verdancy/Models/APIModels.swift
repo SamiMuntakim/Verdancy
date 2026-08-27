@@ -9,14 +9,26 @@ struct PlantsResponse: Codable {
 struct TreeStatus: Codable, Hashable {
     let treesPledged: Int
     let milestones: [String]
+    /// Care tasks completed while genuinely due, and the next total that earns a
+    /// tree — server-computed, so the Trees tab can show real progress.
+    let careOnTime: Int?
+    let nextCareMilestone: Int?
+    let streak: Int?
+    let streakTreeInterval: Int?
     /// Real Tree-Nation plantings with per-tree certificates (`GET /me/trees` →
     /// `planted`). Optional: absent from older disk snapshots.
     let planted: [PlantedTree]?
 
-    init(treesPledged: Int, milestones: [String], planted: [PlantedTree]? = nil) {
+    init(treesPledged: Int, milestones: [String], planted: [PlantedTree]? = nil,
+         careOnTime: Int? = nil, nextCareMilestone: Int? = nil,
+         streak: Int? = nil, streakTreeInterval: Int? = nil) {
         self.treesPledged = treesPledged
         self.milestones = milestones
         self.planted = planted
+        self.careOnTime = careOnTime
+        self.nextCareMilestone = nextCareMilestone
+        self.streak = streak
+        self.streakTreeInterval = streakTreeInterval
     }
 
     /// Newest first — the order the forest screen renders.
@@ -98,6 +110,10 @@ struct PlantedTree: Codable, Hashable, Identifiable {
         }
         if reason == "referral_joined" { return "Joined via invite" }
         if reason.hasPrefix("referral_") { return "Invited a friend" }
+        if reason.hasPrefix("care_"), let n = Int(reason.dropFirst("care_".count)) {
+            return "\(n) care tasks on time"
+        }
+        if reason == "annual_subscription" { return "Annual subscription" }
         return reason.replacingOccurrences(of: "_", with: " ").capitalized
     }
 }
