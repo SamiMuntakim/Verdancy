@@ -100,8 +100,8 @@ describe('HTTP API + JWT authorizer', () => {
     t.hasResourceProperties('AWS::ApiGatewayV2::Authorizer', { AuthorizerType: 'JWT' });
   });
 
-  test('JWT on app routes, NONE on the webhook + /auth/{apple,google} (21 routes total)', () => {
-    t.resourceCountIs('AWS::ApiGatewayV2::Route', 21);
+  test('JWT on app routes, NONE on the webhook + /auth/{apple,google} (22 routes total)', () => {
+    t.resourceCountIs('AWS::ApiGatewayV2::Route', 22);
     t.hasResourceProperties('AWS::ApiGatewayV2::Route', {
       RouteKey: 'POST /identify',
       AuthorizationType: 'JWT',

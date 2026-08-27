@@ -278,6 +278,27 @@ export class VerdancyStack extends cdk.Stack {
       GEMINI_SECRET_NAME,
     );
 
+    // Tree-Nation API token (external, user-populated) — funds real tree
+    // planting, so it's referenced by name and read only by the two Lambdas
+    // that can grant trees.
+    const TREENATION_SECRET_NAME = 'verdancy/treenation-api-token';
+    const treeNationSecret = secretsmanager.Secret.fromSecretNameV2(
+      this,
+      'TreeNationApiToken',
+      TREENATION_SECRET_NAME,
+    );
+    // Planting config. TREENATION_SPECIES_ID pins a specific cheap, in-stock
+    // species (1342 = Albizia gummifera, €0.35) instead of letting the API pick
+    // by price; MAX_TREE_PRICE_EUR is the hard ceiling the client re-verifies
+    // before every plant; DAILY_TREE_BUDGET is the global circuit breaker that
+    // bounds a runaway bug (Tree-Nation auto-refill can't be turned off).
+    const treeEnv = {
+      TREENATION_API_TOKEN_SECRET_NAME: TREENATION_SECRET_NAME,
+      TREENATION_SPECIES_ID: '1342',
+      MAX_TREE_PRICE_EUR: '0.35',
+      DAILY_TREE_BUDGET: '500',
+    };
+
     // ---------------------------------------------------------------------
     // Lambdas — Node.js 20.x, arm64. The Node 20 runtime provides the core
     // @aws-sdk client packages (kept external); @google/genai and
@@ -329,12 +350,15 @@ export class VerdancyStack extends cdk.Stack {
         DIAGNOSE_MODEL_ID: 'gemini-3.5-flash',
         FREE_DAILY_AI_LIMIT: '2',
         SUBSCRIBER_DAILY_AI_LIMIT: '50',
+        STREAK_TREE_INTERVAL: '30',
+        ...treeEnv,
       },
     });
     // Least privilege: the table, the image-bucket objects (+ list for account
     // deletion), the Gemini key, and deleting the caller's own Cognito user.
     table.grantReadWriteData(routerFn);
     geminiSecret.grantRead(routerFn);
+    treeNationSecret.grantRead(routerFn);
     routerFn.addToRolePolicy(
       new iam.PolicyStatement({
         actions: ['s3:GetObject', 's3:PutObject', 's3:DeleteObject'],
@@ -364,12 +388,16 @@ export class VerdancyStack extends cdk.Stack {
       environment: {
         TABLE_NAME: table.tableName,
         REVENUECAT_WEBHOOK_SECRET_ARN: webhookSecret.secretArn,
+        ANNUAL_PRODUCT_ID: 'verdancy_annual',
+        ...treeEnv,
       },
     });
-    // Least privilege: read the webhook secret; UpdateItem for entitlement +
-    // referral-credit writes, GetItem to read referred_by on first purchase.
+    // Least privilege: read the webhook + Tree-Nation secrets; UpdateItem for
+    // entitlement / referral-credit / milestone-claim writes, GetItem to read
+    // referred_by, PutItem to record the trees actually planted.
     webhookSecret.grantRead(webhookFn);
-    table.grant(webhookFn, 'dynamodb:UpdateItem', 'dynamodb:GetItem');
+    treeNationSecret.grantRead(webhookFn);
+    table.grant(webhookFn, 'dynamodb:UpdateItem', 'dynamodb:GetItem', 'dynamodb:PutItem');
 
     // ---------------------------------------------------------------------
     // Native-federation auth. `POST /auth/apple` is unauthenticated (it verifies
@@ -480,6 +508,7 @@ export class VerdancyStack extends cdk.Stack {
       { path: '/plants/{plantId}', methods: [HttpMethod.DELETE, HttpMethod.PATCH] },
       { path: '/plants/{plantId}/photos', methods: [HttpMethod.POST, HttpMethod.GET] },
       { path: '/milestones', methods: [HttpMethod.POST] },
+      { path: '/checkin', methods: [HttpMethod.POST] },
       { path: '/me/trees', methods: [HttpMethod.GET] },
       { path: '/me/referral', methods: [HttpMethod.GET] },
       { path: '/referrals/redeem', methods: [HttpMethod.POST] },
