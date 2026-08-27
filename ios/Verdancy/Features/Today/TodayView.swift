@@ -5,6 +5,8 @@ import SwiftUI
 struct TodayView: View {
     @Environment(AppModel.self) private var app
 
+    @State private var showSettings = false
+
     /// Server-granted trees only — never a local guess off `isSubscribed`.
     private var totalTrees: Int {
         app.garden.trees.treesPledged
@@ -62,6 +64,19 @@ struct TodayView: View {
             .scrollContentBackground(.hidden)
             .background(Theme.Color.background)
             .navigationTitle("Today")
+            .toolbar {
+                // Settings is a rare, secondary destination — a toolbar button is
+                // the platform-standard home for it, which frees the tab slot for
+                // Trees (something users actually come back to).
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { showSettings = true } label: {
+                        Image(systemName: "gearshape")
+                            .foregroundStyle(Theme.Color.textSecondary)
+                    }
+                    .accessibilityLabel("Settings")
+                }
+            }
+            .sheet(isPresented: $showSettings) { SettingsView().environment(app) }
             .refreshable { await app.garden.refresh() }
         }
     }

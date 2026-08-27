@@ -1,13 +1,14 @@
 import SwiftUI
 
-/// "Your forest" (iOS-PRD §10): the real trees planted on the user's behalf.
+/// The "Yours" pane of the Trees tab (iOS-PRD §10): the real trees planted on
+/// this account's behalf.
 /// The pledge count is a promise; this screen is the proof — every tree carries
 /// its species photo, where it grows, its lifetime CO₂, and three third-party
 /// links: the per-tree certificate, the collect page (which claims the tree into
 /// the user's own free Tree-Nation forest), and the project's field updates with
 /// photos from the ground. All of it lives on the partner's site, not ours —
 /// that's what makes it verifiable rather than a number we typed.
-struct ForestView: View {
+struct MyForestList: View {
     @Environment(AppModel.self) private var app
 
     private var trees: TreeStatus { app.garden.trees }
@@ -47,8 +48,6 @@ struct ForestView: View {
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .background(Theme.Color.background)
-        .navigationTitle("Your forest")
-        .navigationBarTitleDisplayMode(.inline)
         .refreshable { await app.garden.refresh() }
         .task { if !app.garden.didLoadOnce { await app.garden.refresh() } }
     }
@@ -232,6 +231,6 @@ private struct ForestEmptyState: View {
 }
 
 #Preview {
-    NavigationStack { ForestView() }
+    NavigationStack { MyForestList() }
         .environment(AppModel(auth: MockAuthService(startSignedIn: true)))
 }

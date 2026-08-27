@@ -3,6 +3,7 @@ import SwiftUI
 /// Settings (iOS-PRD §3.4).
 struct SettingsView: View {
     @Environment(AppModel.self) private var app
+    @Environment(\.dismiss) private var dismiss
     @State private var showPaywall = false
     @State private var remindersOn = NotificationService.shared.remindersEnabled
     @State private var showDeleteConfirm = false
@@ -12,10 +13,6 @@ struct SettingsView: View {
     @State private var redeeming = false
     @State private var redeemMessage: String?
     @State private var redeemSucceeded = false
-
-    private var totalTrees: Int {
-        app.garden.trees.treesPledged
-    }
 
     var body: some View {
         NavigationStack {
@@ -49,17 +46,6 @@ struct SettingsView: View {
                         ForEach(Appearance.allCases) { Text($0.label).tag($0) }
                     }
                     .pickerStyle(.segmented)
-                }
-
-                Section("Your impact") {
-                    LabeledContent("Trees funded", value: "\(totalTrees)")
-                    LabeledContent("Care streak", value: streakLabel)
-                    NavigationLink {
-                        ForestView()
-                    } label: {
-                        Label(forestLabel, systemImage: "tree.fill")
-                    }
-                    Link("View the public tree counter", destination: AppConfig.treeCounterURL)
                 }
 
                 Section("Grow the forest") {
@@ -106,6 +92,13 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Settings")
+            // Settings is presented as a sheet from Today's toolbar, so it needs
+            // its own way out.
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }
+                }
+            }
             .sheet(isPresented: $showPaywall) { PaywallView() }
             .confirmationDialog(
                 "Delete your account?",
@@ -131,18 +124,6 @@ struct SettingsView: View {
 
     private var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
-    }
-
-    private var streakLabel: String {
-        let days = app.streak.current
-        return days == 1 ? "1 day" : "\(days) days"
-    }
-
-    /// The real, certificate-backed plantings — distinct from the pledge count above.
-    private var forestLabel: String {
-        let count = app.garden.trees.plantings.count
-        guard count > 0 else { return "Your forest" }
-        return "Your forest: \(count) planted"
     }
 
     private func redeemInvite() async {

@@ -39,6 +39,7 @@ import { presignPut, presignGet, deleteObjects, deleteByPrefix } from '../lib/s3
 import { deleteCognitoUser } from '../lib/cognito';
 import { identify, diagnose, generateCarePlan, type CarePlanInputs } from '../lib/gemini';
 import { grantTrees } from '../lib/planting';
+import { fetchCommunityForest } from '../lib/treenation';
 
 const FREE_DAILY_AI_LIMIT = () => intEnv('FREE_DAILY_AI_LIMIT', 2);
 const SUBSCRIBER_DAILY_AI_LIMIT = () => intEnv('SUBSCRIBER_DAILY_AI_LIMIT', 50);
@@ -371,6 +372,19 @@ async function handleRedeemReferral(sub: string, event: APIGatewayProxyEventV2Wi
 // ---------------------------------------------------------------------------
 // Dispatch
 // ---------------------------------------------------------------------------
+/**
+ * The whole app's forest, straight from Tree-Nation's public profile feed. This
+ * is a shared, non-user resource — no per-user data is read or returned — so it
+ * needs no ownership check, only a valid session. 503 when the partner is
+ * unreachable and we have never cached a payload: better to show nothing than a
+ * number that disagrees with their own public page.
+ */
+async function handleCommunityTrees() {
+  const forest = await fetchCommunityForest();
+  if (!forest) throw new ApiError(503, 'The community forest is unavailable right now');
+  return json(200, forest);
+}
+
 export const handler = async (
   event: APIGatewayProxyEventV2WithJWTAuthorizer,
 ): Promise<APIGatewayProxyResultV2> => {
@@ -411,6 +425,8 @@ export const handler = async (
         return await handleListPhotos(sub, event);
       case 'POST /checkin':
         return await handleCheckin(sub);
+      case 'GET /trees/community':
+        return await handleCommunityTrees();
       case 'GET /me/trees':
         return await handleGetTrees(sub);
       case 'GET /me/referral':

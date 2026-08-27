@@ -97,6 +97,12 @@ final class APIClient {
                                        body: encode(AddPhotoRequest(imageRef: imageRef, caption: caption))))
     }
 
+    /// The whole app's forest, proxied+cached by our backend from Tree-Nation's
+    /// public profile so one slow third party can't stall the client.
+    func communityTrees() async throws -> CommunityForest {
+        try await send(Endpoint("GET", "/trees/community"), as: CommunityForest.self)
+    }
+
     func trees() async throws -> TreeStatus {
         try await send(Endpoint("GET", "/me/trees"), as: TreeStatus.self)
     }

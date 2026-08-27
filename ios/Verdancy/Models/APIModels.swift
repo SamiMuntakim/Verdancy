@@ -308,3 +308,39 @@ struct BuddyRequest: Encodable {
 struct RedeemInviteRequest: Encodable {
     let code: String
 }
+
+// MARK: - Community forest (`GET /trees/community`)
+
+/// Every tree Verdancy has planted, as Tree-Nation's own public profile reports
+/// it. This is deliberately the partner's number rather than a count we derive:
+/// it's the same figure anyone can check at `profileUrl`, which is what makes it
+/// proof instead of marketing.
+struct CommunityForest: Codable, Hashable {
+    let totalTrees: Int
+    let co2Tons: Double
+    let profileUrl: String
+    let trees: [CommunityTree]
+
+    var profileURL: URL? { URL(string: profileUrl) }
+    /// Tonnes read oddly below 1 t; grams below 1 kg are noise. Pick the unit.
+    var co2Display: String {
+        co2Tons >= 1 ? String(format: "%.1f t", co2Tons) : "\(Int((co2Tons * 1000).rounded())) kg"
+    }
+    static let empty = CommunityForest(totalTrees: 0, co2Tons: 0, profileUrl: "", trees: [])
+}
+
+/// One entry in the community feed. Tree-Nation groups plantings, so `quantity`
+/// can exceed 1, and their `message` already names the species, project and
+/// country — we show their sentence rather than re-deriving one from prose.
+struct CommunityTree: Codable, Hashable, Identifiable {
+    let id: Int
+    let quantity: Int
+    let message: String?
+    let image: String?
+    let plantedAt: String?
+    let certificateUrl: String?
+    let collectUrl: String?
+
+    var plantedDate: Date? { ISO.date(plantedAt) }
+    var certificateURL: URL? { certificateUrl.flatMap(URL.init(string:)) }
+}

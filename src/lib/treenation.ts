@@ -297,3 +297,105 @@ export function _resetTreeNationCachesForTest(): void {
   projectCache = undefined;
   speciesDetailCache.clear();
 }
+
+// ---------------------------------------------------------------------------
+// Community forest — Tree-Nation's PUBLIC profile feed (no auth, no credits).
+//
+// This is the whole app's forest: every tree Verdancy has ever planted, as
+// Tree-Nation themselves report it. We proxy rather than letting the app call
+// them directly, so the shape stays ours, one slow third party can't stall the
+// client, and a change on their side is a server fix rather than an app release.
+// ---------------------------------------------------------------------------
+
+const BFF_HEADERS = { 'X-API-VERSION': '1', Accept: 'application/json' };
+
+/** Our public profile slug and numeric owner id on Tree-Nation. */
+const profileSlug = (): string => process.env.TREENATION_PROFILE_SLUG ?? 'verdancy';
+const ownerId = (): number => intEnv('TREENATION_OWNER_ID', 992563);
+
+export interface CommunityTree {
+  id: number;
+  quantity: number;
+  /** Tree-Nation's own sentence, e.g. "These 2 Albizia gummifera are growing…". */
+  message: string | null;
+  image: string | null;
+  planted_at: string | null;
+  certificate_url: string;
+  collect_url: string;
+}
+
+export interface CommunityForest {
+  total_trees: number;
+  co2_tons: number;
+  profile_url: string;
+  trees: CommunityTree[];
+}
+
+let communityCache: { data: CommunityForest; at: number } | undefined;
+const COMMUNITY_TTL_MS = 15 * 60 * 1000;
+
+async function bff<T>(path: string): Promise<T | null> {
+  try {
+    const res = await fetch(`${API_BASE}${path}`, { headers: BFF_HEADERS });
+    if (!res.ok) return null;
+    return (await res.json()) as T;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The community forest, cached for 15 minutes. Returns the last good payload if
+ * a refresh fails, and null only when we have never had one — the app treats
+ * that as "unavailable" rather than showing a wrong number.
+ */
+export async function fetchCommunityForest(): Promise<CommunityForest | null> {
+  if (communityCache && Date.now() - communityCache.at < COMMUNITY_TTL_MS) {
+    return communityCache.data;
+  }
+
+  const slug = profileSlug();
+  const id = ownerId();
+  const feedQuery =
+    `page=1&ownerIds%5B%5D=${id}&sponsorId=${id}&planterIds%5B%5D=${id}` +
+    `&types%5B%5D=success_seed&types%5B%5D=tree&types%5B%5D=replant` +
+    `&orderByField=birth_date&sortDirection=DESC`;
+
+  const [profile, feed] = await Promise.all([
+    bff<{ trees_all?: number; co2_compensated_tons?: number }>(`/bff/profiles/${slug}`),
+    bff<{ data?: Array<Record<string, unknown>> }>(`/bff/trees/feed?${feedQuery}`),
+  ]);
+
+  // Never serve a half-answer: without the profile we don't know the true total,
+  // and a count that disagrees with the partner's own page is worse than none.
+  if (!profile || typeof profile.trees_all !== 'number') {
+    return communityCache?.data ?? null;
+  }
+
+  const trees: CommunityTree[] = (feed?.data ?? []).map((t) => {
+    const token = String(t.hash_token ?? '');
+    return {
+      id: Number(t.id),
+      quantity: Number(t.quantity) || 1,
+      message: typeof t.message === 'string' ? t.message : null,
+      image: typeof t.image === 'string' ? t.image : null,
+      planted_at: typeof t.birth_date === 'string' ? t.birth_date : null,
+      certificate_url: `${API_BASE}/certificate/${token}`,
+      collect_url: `${API_BASE}/collect/${token}`,
+    };
+  });
+
+  const data: CommunityForest = {
+    total_trees: profile.trees_all,
+    co2_tons: Number(profile.co2_compensated_tons) || 0,
+    profile_url: `${API_BASE}/profile/${slug}`,
+    trees,
+  };
+  communityCache = { data, at: Date.now() };
+  return data;
+}
+
+/** Test-only. */
+export function _resetCommunityCacheForTest(): void {
+  communityCache = undefined;
+}

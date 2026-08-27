@@ -512,6 +512,7 @@ export class VerdancyStack extends cdk.Stack {
       { path: '/plants/{plantId}/photos', methods: [HttpMethod.POST, HttpMethod.GET] },
       { path: '/checkin', methods: [HttpMethod.POST] },
       { path: '/me/trees', methods: [HttpMethod.GET] },
+      { path: '/trees/community', methods: [HttpMethod.GET] },
       { path: '/me/referral', methods: [HttpMethod.GET] },
       { path: '/referrals/redeem', methods: [HttpMethod.POST] },
     ];

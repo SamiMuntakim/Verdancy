@@ -83,9 +83,9 @@ struct MainTabView: View {
             MyOasisView()
                 .tabItem { Label("My Oasis", systemImage: "leaf.fill") }
                 .tag(AppModel.Tab.oasis)
-            SettingsView()
-                .tabItem { Label("Settings", systemImage: "gearshape.fill") }
-                .tag(AppModel.Tab.settings)
+            TreesView()
+                .tabItem { Label("Trees", systemImage: "tree.fill") }
+                .tag(AppModel.Tab.trees)
         }
     }
 }

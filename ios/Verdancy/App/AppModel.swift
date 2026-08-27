@@ -8,7 +8,7 @@ import WidgetKit
 @Observable
 final class AppModel {
     enum Phase: Equatable { case launching, signedOut, signedIn }
-    enum Tab: Hashable { case today, scan, oasis, settings }
+    enum Tab: Hashable { case today, scan, oasis, trees }
 
     private static let appearanceKey = "verdancy.appearance"
 
