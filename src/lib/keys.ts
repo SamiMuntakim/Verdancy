@@ -24,6 +24,15 @@ export const BUDDY_SK = 'BUDDY';
 export const refCodePk = (code: string): string => `REFCODE#${code}`;
 export const REF_OWNER_SK = 'OWNER';
 
+// Tree-Nation planting.
+// Global daily spend circuit-breaker: a single non-user item counting trees
+// planted across ALL users on a UTC day (TTLs away like the quota items).
+export const GLOBAL_PK = 'GLOBAL';
+export const treeBudgetSk = (day: string): string => `TREEBUDGET#${day}`;
+// Per-user record of an actually-planted tree (holds the Tree-Nation collect/
+// certificate URLs for the in-app reward + reconciliation).
+export const treeSk = (treeId: string | number): string => `TREE#${treeId}`;
+
 /** URL-safe slug for the species, used in the sprite S3 key. */
 export function speciesSlug(species: string): string {
   return species.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');

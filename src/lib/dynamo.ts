@@ -22,6 +22,9 @@ import {
   BUDDY_SK,
   refCodePk,
   REF_OWNER_SK,
+  GLOBAL_PK,
+  treeBudgetSk,
+  treeSk,
 } from './keys';
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
@@ -49,6 +52,9 @@ export interface UserMetadata {
   referral_code?: string;
   referred_by?: string;
   referral_credited?: boolean;
+  /** Server-stamped UTC date of the last check-in (never client-supplied). */
+  last_active_date?: string;
+  current_streak?: number;
 }
 
 export async function getMetadata(sub: string): Promise<UserMetadata | undefined> {
@@ -179,6 +185,39 @@ export async function reserveFreeAi(sub: string, freeLimit: number): Promise<voi
     );
   } catch (err) {
     if (isConditionalFailure(err)) throw new ApiError(402, 'Free allowance exhausted');
+    throw err;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Tree-Nation global spend circuit-breaker — reserve BEFORE planting.
+// ---------------------------------------------------------------------------
+
+/**
+ * Reserve `n` trees against a single global date-keyed counter, allowed only
+ * while the day's total stays at/under `dailyMax`. Atomic `ADD count :n` with a
+ * conditional guard — the money circuit-breaker that bounds a runaway bug to
+ * `dailyMax` trees/day regardless of how many users or callers trigger plants
+ * (Tree-Nation auto-refill can't be disabled, so this is our real cap). Returns
+ * true on success; false when the day's budget is exhausted (caller skips the
+ * plant). The date lives in the key, so it resets each UTC day and TTLs away.
+ */
+export async function reserveGlobalTreeBudget(n: number, dailyMax: number): Promise<boolean> {
+  if (n <= 0) return true;
+  try {
+    await ddb.send(
+      new UpdateCommand({
+        TableName: table(),
+        Key: { PK: GLOBAL_PK, SK: treeBudgetSk(todayUtc()) },
+        UpdateExpression: 'SET expires_at = if_not_exists(expires_at, :ttl) ADD #count :n',
+        ConditionExpression: 'attribute_not_exists(#count) OR #count <= :room',
+        ExpressionAttributeNames: { '#count': 'count' },
+        ExpressionAttributeValues: { ':n': n, ':ttl': quotaTtlEpoch(), ':room': dailyMax - n },
+      }),
+    );
+    return true;
+  } catch (err) {
+    if (isConditionalFailure(err)) return false;
     throw err;
   }
 }
@@ -427,6 +466,176 @@ export async function recordMilestone(sub: string, milestoneId: string): Promise
     if (isConditionalFailure(err)) {
       // Already counted — idempotent. Return the current view.
       return getTrees(sub);
+    }
+    throw err;
+  }
+}
+
+/**
+ * Same single atomic conditional UpdateItem as `recordMilestone` (invariant #5),
+ * but reports whether THIS call was the one that claimed the milestone, and can
+ * credit more than one tree. Only the winning caller plants — that's what makes
+ * spending exactly-once under concurrent/retried triggers.
+ */
+export async function recordMilestoneIfNew(
+  sub: string,
+  milestoneId: string,
+  treeCount = 1,
+): Promise<boolean> {
+  try {
+    await ddb.send(
+      new UpdateCommand({
+        TableName: table(),
+        Key: { PK: userPk(sub), SK: META_SK },
+        UpdateExpression: 'ADD milestones :midSet, trees_pledged :n',
+        ConditionExpression: 'NOT contains(milestones, :mid)',
+        ExpressionAttributeValues: {
+          ':midSet': new Set([milestoneId]),
+          ':mid': milestoneId,
+          ':n': treeCount,
+        },
+      }),
+    );
+    return true;
+  } catch (err) {
+    if (isConditionalFailure(err)) return false; // already claimed — don't plant again
+    throw err;
+  }
+}
+
+/**
+ * Compensating action: undo a milestone claim whose planting failed, so a later
+ * retry can re-claim it and the user isn't silently short a tree. Best-effort —
+ * a failed rollback is logged by the caller, never thrown at the user.
+ */
+export async function releaseMilestone(
+  sub: string,
+  milestoneId: string,
+  treeCount = 1,
+): Promise<void> {
+  await ddb.send(
+    new UpdateCommand({
+      TableName: table(),
+      Key: { PK: userPk(sub), SK: META_SK },
+      UpdateExpression: 'DELETE milestones :midSet ADD trees_pledged :neg',
+      ExpressionAttributeValues: {
+        ':midSet': new Set([milestoneId]),
+        ':neg': -treeCount,
+      },
+    }),
+  );
+}
+
+/** Give back unused global budget when a reserved plant didn't happen. */
+export async function releaseGlobalTreeBudget(n: number): Promise<void> {
+  if (n <= 0) return;
+  await ddb.send(
+    new UpdateCommand({
+      TableName: table(),
+      Key: { PK: GLOBAL_PK, SK: treeBudgetSk(todayUtc()) },
+      UpdateExpression: 'ADD #count :neg',
+      ExpressionAttributeNames: { '#count': 'count' },
+      ExpressionAttributeValues: { ':neg': -n },
+    }),
+  );
+}
+
+export interface TreeRecord {
+  id: number;
+  collect_url: string;
+  certificate_url: string;
+  species_name?: string;
+  project_name?: string;
+}
+
+/** Persist actually-planted trees (Tree-Nation collect/certificate URLs). */
+export async function putTreeRecords(
+  sub: string,
+  trees: TreeRecord[],
+  reason: string,
+): Promise<void> {
+  for (const tree of trees) {
+    await ddb.send(
+      new PutCommand({
+        TableName: table(),
+        Item: {
+          PK: userPk(sub),
+          SK: treeSk(tree.id),
+          collect_url: tree.collect_url,
+          certificate_url: tree.certificate_url,
+          species_name: tree.species_name ?? null,
+          project_name: tree.project_name ?? null,
+          reason,
+          planted_at: nowIso(),
+        },
+      }),
+    );
+  }
+}
+
+export async function listTreeRecords(sub: string): Promise<Record<string, unknown>[]> {
+  const res = await ddb.send(
+    new QueryCommand({
+      TableName: table(),
+      KeyConditionExpression: 'PK = :pk AND begins_with(SK, :p)',
+      ExpressionAttributeValues: { ':pk': userPk(sub), ':p': 'TREE#' },
+    }),
+  );
+  return (res.Items ?? []) as Record<string, unknown>[];
+}
+
+// ---------------------------------------------------------------------------
+// Daily check-in streak — SERVER-computed (streaks now spend real money, so a
+// client must never be able to assert one).
+// ---------------------------------------------------------------------------
+
+export interface CheckinResult {
+  streak: number;
+  /** False when the user already checked in today (idempotent no-op). */
+  advanced: boolean;
+}
+
+function previousUtcDay(day: string): string {
+  const d = new Date(`${day}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Record today's check-in and return the SERVER-computed streak.
+ *
+ * The date comes from the Lambda clock (never the client) and is written with a
+ * `last_active_date < today` guard, so: repeat calls the same day are a no-op,
+ * concurrent calls let exactly one through, and there is no client-supplied
+ * value that can fast-forward a streak. Reaching STREAK#30 therefore requires 30
+ * distinct real UTC days of activity.
+ */
+export async function recordCheckin(sub: string): Promise<CheckinResult> {
+  const today = todayUtc();
+  const meta = await getMetadata(sub);
+  const last = typeof meta?.last_active_date === 'string' ? meta.last_active_date : undefined;
+  if (last === today) {
+    return { streak: (meta?.current_streak as number) ?? 1, advanced: false };
+  }
+  const nextStreak =
+    last === previousUtcDay(today) ? ((meta?.current_streak as number) ?? 0) + 1 : 1;
+
+  try {
+    await ddb.send(
+      new UpdateCommand({
+        TableName: table(),
+        Key: { PK: userPk(sub), SK: META_SK },
+        UpdateExpression: 'SET last_active_date = :today, current_streak = :streak',
+        ConditionExpression: 'attribute_not_exists(last_active_date) OR last_active_date < :today',
+        ExpressionAttributeValues: { ':today': today, ':streak': nextStreak },
+      }),
+    );
+    return { streak: nextStreak, advanced: true };
+  } catch (err) {
+    if (isConditionalFailure(err)) {
+      // A concurrent request already checked in for today.
+      const current = await getMetadata(sub);
+      return { streak: (current?.current_streak as number) ?? nextStreak, advanced: false };
     }
     throw err;
   }

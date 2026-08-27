@@ -12,6 +12,12 @@ export function intEnv(name: string, fallback: number): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
+export function floatEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  const n = raw ? Number.parseFloat(raw) : NaN;
+  return Number.isFinite(n) ? n : fallback;
+}
+
 /** UTC calendar day, `YYYY-MM-DD` — the daily-quota item key suffix. */
 export function todayUtc(date = new Date()): string {
   return date.toISOString().slice(0, 10);
