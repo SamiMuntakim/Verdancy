@@ -43,6 +43,8 @@ interface RevenueCatEvent {
   type?: string;
   app_user_id?: string;
   product_id?: string;
+  /** RevenueCat sends 'SANDBOX' for test purchases, 'PRODUCTION' for real ones. */
+  environment?: string;
   expiration_at_ms?: number;
 }
 
@@ -56,12 +58,27 @@ const ANNUAL_PRODUCT_ID = process.env.ANNUAL_PRODUCT_ID ?? 'verdancy_annual';
 const ANNUAL_TREES = 10;
 
 /**
+ * Only real money plants real trees. Sandbox purchases still grant the
+ * entitlement (so TestFlight/dev builds behave like the real app), but they must
+ * never spend tree credits: StoreKit's sandbox renews an annual subscription
+ * roughly hourly, up to six times, and each renewal is a distinct event that
+ * would otherwise claim its own 10-tree grant.
+ */
+function isSandbox(event: RevenueCatEvent): boolean {
+  return (event.environment ?? '').toUpperCase() === 'SANDBOX';
+}
+
+/**
  * Plant the annual grant. The milestone id is unique per RevenueCat event, so a
  * retried/duplicate delivery of the SAME event can't double-plant, while each
  * real renewal is a new event and grants a fresh 10 trees.
  */
 async function grantAnnualTrees(event: RevenueCatEvent, sub: string): Promise<void> {
   if (event.product_id !== ANNUAL_PRODUCT_ID) return; // monthly grants nothing
+  if (isSandbox(event)) {
+    console.log('Sandbox purchase — entitlement granted, no trees planted');
+    return;
+  }
   const periodKey = event.id ?? String(event.expiration_at_ms ?? '');
   if (!periodKey) return;
   await grantTrees({
@@ -83,11 +100,15 @@ function toEpochSeconds(ms: unknown): number | null {
  * webhook retries / duplicate events can't double-credit; the milestone writes
  * themselves are the usual idempotent conditional ADDs.
  */
-async function creditReferralIfAny(sub: string): Promise<void> {
+async function creditReferralIfAny(sub: string, sandbox: boolean): Promise<void> {
   const meta = await getMetadata(sub);
   const inviter = meta?.referred_by;
   if (!inviter || meta?.referral_credited) return;
   if (!(await markReferralCredited(sub))) return; // someone else claimed it
+  if (sandbox) {
+    console.log('Sandbox purchase — referral credited, no trees planted');
+    return;
+  }
 
   // One real tree for the new subscriber…
   await grantTrees({
@@ -147,7 +168,7 @@ export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGateway
       }
       if (type === 'INITIAL_PURCHASE') {
         // Best-effort: a referral-credit failure must not fail the entitlement ack.
-        await creditReferralIfAny(appUserId).catch(() => {
+        await creditReferralIfAny(appUserId, isSandbox(rcEvent)).catch(() => {
           console.error('Referral credit failed');
         });
       }
