@@ -14,7 +14,7 @@ struct SettingsView: View {
     @State private var redeemSucceeded = false
 
     private var totalTrees: Int {
-        (app.isSubscribed ? 10 : 0) + app.garden.trees.treesPledged
+        app.garden.trees.treesPledged
     }
 
     var body: some View {

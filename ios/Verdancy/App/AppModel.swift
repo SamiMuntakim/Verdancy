@@ -71,7 +71,12 @@ final class AppModel {
         }
     }
 
-    private var totalTrees: Int { (isSubscribed ? 10 : 0) + garden.trees.treesPledged }
+    /// Trees come from the server and nowhere else. The count must never include a
+    /// client-side guess: the annual grant lands via the RevenueCat webhook (monthly
+    /// grants none, and sandbox purchases grant none at all), so adding a local +10
+    /// on `isSubscribed` would show trees nobody funded — and double-count once the
+    /// real grant arrives.
+    private var totalTrees: Int { garden.trees.treesPledged }
 
     /// Push a fresh due summary to the home-screen widget (App Group handoff).
     private func publishWidgetSummary() {

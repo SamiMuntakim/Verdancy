@@ -5,8 +5,9 @@ import SwiftUI
 struct TodayView: View {
     @Environment(AppModel.self) private var app
 
+    /// Server-granted trees only — never a local guess off `isSubscribed`.
     private var totalTrees: Int {
-        (app.isSubscribed ? 10 : 0) + app.garden.trees.treesPledged
+        app.garden.trees.treesPledged
     }
 
     var body: some View {
