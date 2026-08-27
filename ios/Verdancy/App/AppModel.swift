@@ -252,9 +252,29 @@ final class AppModel {
             // opens into their plant's own buddy (gated until here to save credits).
             garden.ensureBuddiesForAll()
             pendingBloom = true
-            // The annual grant's 10 trees arrive server-side via the RevenueCat
-            // webhook, so re-read rather than assuming anything locally.
-            if let status = try? await api.trees() { garden.applyTrees(status) }
+            awaitGrantedTrees()
+        }
+    }
+
+    /// The annual grant's 10 trees are written by the RevenueCat webhook, which
+    /// lands server-to-server a moment AFTER the purchase call returns — so a
+    /// single immediate read almost always sees the old count, and the user is
+    /// told "0 trees" seconds after paying for ten. Poll briefly instead, in the
+    /// background so the bloom isn't held up, and stop the moment the grant shows.
+    /// Nothing arrives for a monthly plan (or a sandbox purchase, which never
+    /// funds trees), so this just times out quietly.
+    private func awaitGrantedTrees() {
+        let before = garden.trees.treesPledged
+        Task { [weak self] in
+            for delay in [1.0, 2.0, 3.0, 5.0, 8.0] {
+                try? await Task.sleep(for: .seconds(delay))
+                guard let self else { return }
+                guard let status = try? await self.api.trees() else { continue }
+                if status.treesPledged > before {
+                    self.garden.applyTrees(status)
+                    return
+                }
+            }
         }
     }
 
