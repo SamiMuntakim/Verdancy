@@ -81,7 +81,7 @@ struct OnboardingView: View {
         ("drop.fill", "Never kill a plant again",
          "Care reminders tuned to each plant you own, so you water at the right time — never too much, never too late."),
         ("tree.fill", "You grow plants.\nWe grow forests.",
-         "This isn't just another plant app. Subscribe and we plant 10 real trees with One Tree Planted — plus one more for every milestone — tracked on a public counter."),
+         "This isn't just another plant app. Subscribe annually and we fund 10 real trees through \(AppConfig.plantingPartner) — plus one more for every 30-day care streak — each with its own certificate."),
     ]
 
     /// The short quiz (iOS-PRD §8.1). Pets is a separate final page below.

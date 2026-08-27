@@ -9,8 +9,63 @@ struct PlantsResponse: Codable {
 struct TreeStatus: Codable, Hashable {
     let treesPledged: Int
     let milestones: [String]
+    /// Real Tree-Nation plantings with per-tree certificates (`GET /me/trees` →
+    /// `planted`). Optional: absent from older disk snapshots.
+    let planted: [PlantedTree]?
+
+    init(treesPledged: Int, milestones: [String], planted: [PlantedTree]? = nil) {
+        self.treesPledged = treesPledged
+        self.milestones = milestones
+        self.planted = planted
+    }
+
+    /// Newest first — the order the forest screen renders.
+    var plantings: [PlantedTree] {
+        (planted ?? []).sorted { ($0.plantedDate ?? .distantPast) > ($1.plantedDate ?? .distantPast) }
+    }
 
     static let empty = TreeStatus(treesPledged: 0, milestones: [])
+}
+
+/// One real tree from `GET /me/trees` → `planted`. `certificateUrl` is the
+/// user-visible proof of an actual planting (iOS-PRD §10: provable, never vague),
+/// so it's the link the forest screen leads with. Every field is optional — a
+/// planting still renders if the partner hasn't filled one in.
+struct PlantedTree: Codable, Hashable, Identifiable {
+    let collectUrl: String?
+    let certificateUrl: String?
+    let speciesName: String?
+    let projectName: String?
+    let reason: String?
+    let plantedAt: String?
+
+    var id: String {
+        certificateUrl ?? collectUrl ?? "\(speciesName ?? "tree")-\(plantedAt ?? "")"
+    }
+
+    var plantedDate: Date? { ISO.date(plantedAt) }
+    var certificateURL: URL? { certificateUrl.flatMap(URL.init(string:)) }
+    var collectURL: URL? { collectUrl.flatMap(URL.init(string:)) }
+
+    var displaySpecies: String { speciesName ?? "A tree" }
+
+    /// Humanized grant reason (`streak_7` → "7-day care streak").
+    var displayReason: String? {
+        guard let reason, !reason.isEmpty else { return nil }
+        if reason.hasPrefix("streak_"), let days = Int(reason.dropFirst("streak_".count)) {
+            return "\(days)-day care streak"
+        }
+        if reason == "referral_joined" { return "Joined via invite" }
+        if reason.hasPrefix("referral_") { return "Invited a friend" }
+        return reason.replacingOccurrences(of: "_", with: " ").capitalized
+    }
+}
+
+/// `POST /checkin` — the server computes the streak from its own UTC date, so
+/// calling more than once a day is a safe no-op.
+struct CheckinResponse: Codable {
+    let streak: Int
+    let treeGranted: Bool
 }
 
 /// `POST /uploads` → presigned PUT ticket.

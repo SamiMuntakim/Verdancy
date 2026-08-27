@@ -67,6 +67,13 @@ final class GardenStore {
         onChanged?(plants)
     }
 
+    /// Replace the tree status after a grant (milestone or streak check-in) and
+    /// persist it, so the forest survives a cold start offline.
+    func applyTrees(_ status: TreeStatus) {
+        trees = status
+        SnapshotStore.save(GardenSnapshot(plants: plants, trees: trees))
+    }
+
     // MARK: Snooze ("not today")
 
     private static let snoozeKey = "verdancy.snoozes"
