@@ -89,6 +89,16 @@ describe('grantTrees — circuit breaker and rollback', () => {
     expect(mockRelease).toHaveBeenCalled();
   });
 
+  // Once the trees are paid for, rolling back would let a retry buy them again.
+  test('a record-write failure after planting does NOT roll back the claim', async () => {
+    const spy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    mockPutTrees.mockRejectedValue(new Error('dynamo down'));
+    expect(await grant({ quantity: 10 })).toBe(true); // the trees exist — report success
+    expect(mockRelease).not.toHaveBeenCalled(); // claim stands, so no re-plant
+    expect(mockReleaseBudget).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
   test('quantity 0 spends nothing and claims nothing', async () => {
     expect(await grant({ quantity: 0 })).toBe(false);
     expect(mockClaim).not.toHaveBeenCalled();

@@ -59,7 +59,20 @@ export async function grantTrees(opts: {
       return false;
     }
 
-    await putTreeRecords(sub, result.trees, reason);
+    // PAST THE POINT OF NO RETURN: the trees exist and the credits are gone.
+    // Rolling the claim back now would let a retry plant (and pay) all over
+    // again, so a failure to save the display records must never reach the
+    // rollback below — we log it and keep the claim. Worst case the user's
+    // forest is missing a certificate link; that beats double-charging.
+    try {
+      await putTreeRecords(sub, result.trees, reason);
+    } catch (err) {
+      console.error(
+        `Planted ${quantity} tree(s) for ${reason} but failed to record them ` +
+          `(payment ${result.payment_id ?? 'unknown'}):`,
+        err instanceof Error ? err.message : err,
+      );
+    }
     return true;
   } catch (err) {
     console.error(`Tree planting failed (${reason}):`, err instanceof Error ? err.message : err);

@@ -56,7 +56,7 @@ enum AppConfig {
 
     /// Public site (GitHub Pages from /docs; swap for verdancy.app when the domain
     /// is live). Legal pages are App Store requirements.
-    static let siteBaseURL = "https://samimuntakim.github.io/Verdancy"
+    static let siteBaseURL = "https://verdancy.app"
     static let privacyURL = URL(string: "\(siteBaseURL)/privacy.html")!
     static let termsURL = URL(string: "\(siteBaseURL)/terms.html")!
     static let supportURL = URL(string: "\(siteBaseURL)/support.html")!
