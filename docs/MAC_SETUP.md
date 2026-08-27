@@ -142,16 +142,19 @@ and the webhook flips `entitlement_active` server-side.
 
 ---
 
-## Milestone D0 — enable the public site (2 min, from any machine)
+## Milestone D0 — publish the public site
 
-The app's Privacy Policy / Terms / Support / tree-counter links point at GitHub Pages, and Apple
-requires the privacy + support URLs to be live at review time:
+The app's Privacy Policy / Terms / Support / tree-counter links all resolve from
+`AppConfig.siteBaseURL` (`https://verdancy.app`), and Apple requires the privacy + support URLs to
+be live at review time. `verdancy.app` is hosted externally (not GitHub Pages) — the pages in this
+`/docs` folder are the source content; deploy them to that host.
 
-1. GitHub → the Verdancy repo → **Settings → Pages**.
-2. Source: **Deploy from a branch** → Branch **main**, folder **/docs** → Save.
-3. After a minute, verify <https://samimuntakim.github.io/Verdancy/privacy.html> loads.
+Verify each links target loads:
 
-(When you buy `verdancy.app`, point Pages at the custom domain and update `AppConfig.siteBaseURL`.)
+- <https://verdancy.app/privacy.html>
+- <https://verdancy.app/terms.html>
+- <https://verdancy.app/support.html>
+- <https://verdancy.app/trees.html>
 
 ## Milestone D — ship
 

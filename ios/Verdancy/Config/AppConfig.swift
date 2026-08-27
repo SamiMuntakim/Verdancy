@@ -54,8 +54,8 @@ enum AppConfig {
     /// `POST /buddy` generation path and the CloudFront-served sprites.
     static let budBackendEnabled = false
 
-    /// Public site (GitHub Pages from /docs; swap for verdancy.app when the domain
-    /// is live). Legal pages are App Store requirements.
+    /// Public site — the live externally-hosted domain. Legal pages are App Store
+    /// requirements; page source lives in /docs and is deployed to this host.
     static let siteBaseURL = "https://verdancy.app"
     static let privacyURL = URL(string: "\(siteBaseURL)/privacy.html")!
     static let termsURL = URL(string: "\(siteBaseURL)/terms.html")!
