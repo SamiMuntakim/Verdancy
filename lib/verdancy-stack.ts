@@ -392,6 +392,7 @@ export class VerdancyStack extends cdk.Stack {
         TABLE_NAME: table.tableName,
         REVENUECAT_WEBHOOK_SECRET_ARN: webhookSecret.secretArn,
         ANNUAL_PRODUCT_ID: 'verdancy_annual',
+        MONTHLY_PRODUCT_ID: 'verdancy_monthly',
         ...treeEnv,
       },
     });

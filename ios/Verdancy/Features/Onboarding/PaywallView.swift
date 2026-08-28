@@ -96,10 +96,10 @@ struct PaywallView: View {
                     }
                     .font(.footnote)
                     .foregroundStyle(Theme.Color.textSecondary)
-                    // Only the annual plan funds the 10 trees, so only promise them there.
+                    // Each plan promises only what it actually funds.
                     Text(plan == .annual
                          ? "No charge until your free trial ends. Cancel in two taps. Your 10 trees are funded when your first year starts."
-                         : "Cancel in two taps.")
+                         : "Cancel in two taps. A real tree is funded every month you subscribe.")
                         .font(.caption2).multilineTextAlignment(.center)
                         .foregroundStyle(Theme.Color.textSecondary)
                 }
@@ -203,8 +203,8 @@ struct PlanComparison: View {
                 free: nil, premiumValue: nil),
             Row(icon: "flame.fill", label: "Care streaks & stats",
                 free: nil, premiumValue: nil),
-            Row(icon: "tree.fill", label: "Real trees funded (annual)",
-                free: nil, premiumValue: "10 / yr"),
+            Row(icon: "tree.fill", label: "Real trees funded",
+                free: nil, premiumValue: "10 / yr · 1 / mo"),
         ]
     }
 

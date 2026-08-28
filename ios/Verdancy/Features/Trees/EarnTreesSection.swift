@@ -48,7 +48,7 @@ struct EarnTreesSection: View {
             EarnRow(
                 icon: "crown.fill",
                 title: isSubscribed ? "Annual subscription" : "Subscribe annually",
-                detail: "10 trees for every year subscribed. Monthly plans don't fund trees.",
+                detail: "10 trees for every year subscribed, or 1 for every month.",
                 progress: nil,
                 progressLabel: nil,
                 action: isSubscribed ? nil : onSubscribe)

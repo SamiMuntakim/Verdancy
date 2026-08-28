@@ -62,8 +62,15 @@ describe('annual vs monthly tree grants', () => {
     expect(mockGrant).toHaveBeenCalledWith(expect.objectContaining({ quantity: 10 }));
   });
 
-  test('MONTHLY grants no trees', async () => {
+  test('MONTHLY grants exactly 1 tree', async () => {
     await call(annual({ product_id: 'verdancy_monthly' }));
+    expect(mockGrant).toHaveBeenCalledWith(
+      expect.objectContaining({ quantity: 1, reason: 'monthly_subscription' }),
+    );
+  });
+
+  test('a product we do not sell grants nothing', async () => {
+    await call(annual({ product_id: 'some_other_sku' }));
     expect(mockGrant).not.toHaveBeenCalled();
   });
 
@@ -119,7 +126,7 @@ describe('referral trees', () => {
 
   test("a referred user's first purchase plants one tree for each side", async () => {
     ddbMock.on(GetCommand).resolves({ Item: { referred_by: 'inviter-9' } });
-    await call(annual({ product_id: 'verdancy_monthly' })); // monthly: referral only, no annual grant
+    await call(annual({ product_id: 'verdancy_monthly' })); // 1 tree for the sub + 1 each side
     const reasons = mockGrant.mock.calls.map((c) => c[0].reason);
     expect(reasons).toContain('referral_joined');
     expect(reasons).toContain('referral_invited');

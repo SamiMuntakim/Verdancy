@@ -51,11 +51,20 @@ interface RevenueCatEvent {
 /**
  * Tree grants (real Tree-Nation plantings, funded by us):
  *   - ANNUAL subscription (initial purchase or renewal) → 10 trees, per period.
- *   - Monthly (`verdancy_monthly`) → none.
+ *   - MONTHLY subscription → 1 tree, per period.
  *   - A referred friend's first purchase → 1 tree for them, 1 for the inviter.
  */
 const ANNUAL_PRODUCT_ID = process.env.ANNUAL_PRODUCT_ID ?? 'verdancy_annual';
+const MONTHLY_PRODUCT_ID = process.env.MONTHLY_PRODUCT_ID ?? 'verdancy_monthly';
 const ANNUAL_TREES = 10;
+const MONTHLY_TREES = 1;
+
+/** Trees funded by one subscription period, or 0 for anything we don't sell. */
+function treesForProduct(productId: string | undefined): number {
+  if (productId === ANNUAL_PRODUCT_ID) return ANNUAL_TREES;
+  if (productId === MONTHLY_PRODUCT_ID) return MONTHLY_TREES;
+  return 0;
+}
 
 /**
  * Only real money plants real trees. Sandbox purchases still grant the
@@ -69,12 +78,14 @@ function isSandbox(event: RevenueCatEvent): boolean {
 }
 
 /**
- * Plant the annual grant. The milestone id is unique per RevenueCat event, so a
- * retried/duplicate delivery of the SAME event can't double-plant, while each
- * real renewal is a new event and grants a fresh 10 trees.
+ * Plant a subscription period's trees: 10 for a year, 1 for a month. The
+ * milestone id is unique per RevenueCat event, so a retried or duplicated
+ * delivery of the SAME event can't double-plant, while each real renewal is a
+ * new event and funds a fresh batch.
  */
-async function grantAnnualTrees(event: RevenueCatEvent, sub: string): Promise<void> {
-  if (event.product_id !== ANNUAL_PRODUCT_ID) return; // monthly grants nothing
+async function grantSubscriptionTrees(event: RevenueCatEvent, sub: string): Promise<void> {
+  const quantity = treesForProduct(event.product_id);
+  if (quantity === 0) return; // not a product that funds trees
   if (isSandbox(event)) {
     console.log('Sandbox purchase — entitlement granted, no trees planted');
     return;
@@ -83,9 +94,9 @@ async function grantAnnualTrees(event: RevenueCatEvent, sub: string): Promise<vo
   if (!periodKey) return;
   await grantTrees({
     sub,
-    milestoneId: `annual_${periodKey}`,
-    quantity: ANNUAL_TREES,
-    reason: 'annual_subscription',
+    milestoneId: `sub_${periodKey}`,
+    quantity,
+    reason: quantity === ANNUAL_TREES ? 'annual_subscription' : 'monthly_subscription',
     message: 'Thank you for growing with Verdancy 🌱',
   });
 }
@@ -162,8 +173,8 @@ export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGateway
       await setEntitlement(appUserId, true, toEpochSeconds(rcEvent.expiration_at_ms));
       if (type === 'INITIAL_PURCHASE' || type === 'RENEWAL') {
         // Best-effort: a planting failure must not fail the entitlement ack.
-        await grantAnnualTrees(rcEvent, appUserId).catch(() => {
-          console.error('Annual tree grant failed');
+        await grantSubscriptionTrees(rcEvent, appUserId).catch(() => {
+          console.error('Subscription tree grant failed');
         });
       }
       if (type === 'INITIAL_PURCHASE') {
