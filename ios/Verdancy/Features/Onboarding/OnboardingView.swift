@@ -1,11 +1,12 @@
 import SwiftUI
 
-/// Dedicated onboarding flow (iOS-PRD §8.1): 3 promise screens → a short
-/// personalization quiz → pets → **sign-up only on the final screen**. It's a
-/// linear, Continue-driven funnel — the auth buttons never appear before the end, so
-/// nobody can sign up mid-quiz and skip the flow. No permission prompts front-loaded;
-/// the first scan (and its seedling payoff) comes *after* sign-up in `FirstRunView`.
-/// Pets at home → toxicity warnings speak to *their* home, not a generic one.
+/// Dedicated onboarding flow (iOS-PRD §8.1): one show-the-aha hook screen → a short
+/// personalization quiz whose answers visibly accumulate into "your plan" → a
+/// plan-assembly beat → **sign-up only on the final screen**, reframed as saving the
+/// plan they just built. It's a linear funnel — the auth buttons never appear before
+/// the end, so nobody can sign up mid-quiz and skip the flow. No permission prompts
+/// front-loaded; the first scan (and its seedling payoff) comes *after* sign-up in
+/// `FirstRunView`. Pets at home → toxicity warnings speak to *their* home.
 enum PetContext {
     private static let key = "verdancy.hasPets"
 
@@ -56,10 +57,10 @@ private struct QuizOption: Identifiable {
 /// A single-select quiz question rendered as a page in onboarding.
 private struct QuizQuestion: Identifiable {
     let id: String        // analytics/storage key, e.g. "source"
-    let icon: String
-    let tint: Color
     let title: String
     let subtitle: String
+    /// Dashed placeholder chip in the "your plan so far" strip while unanswered.
+    let pendingChip: String?
     let options: [QuizOption]
 }
 
@@ -75,23 +76,13 @@ struct OnboardingView: View {
     /// Selected value per quiz question, keyed by `QuizQuestion.id`.
     @State private var answers: [String: String] = [:]
 
-    private let slides: [(icon: String, title: String, body: String)] = [
-        ("camera.viewfinder", "Know every plant you meet",
-         "Point your camera at any plant to get its name, whether it's pet-safe, and how to keep it thriving in seconds."),
-        ("drop.fill", "Never kill a plant again",
-         "Care reminders tuned to each plant you own, so you water at the right time, never too much, never too late."),
-        ("tree.fill", "You grow plants.\nWe grow forests.",
-         "This isn't just another plant app. Subscribe annually and we fund 10 real trees through \(AppConfig.plantingPartner), plus one more for every 30-day care streak, each with its own certificate."),
-    ]
-
     /// The short quiz (iOS-PRD §8.1). Pets is a separate final page below.
     private let questions: [QuizQuestion] = [
         QuizQuestion(
             id: "source",
-            icon: "sparkle.magnifyingglass",
-            tint: Theme.Color.leaf,
             title: "Where did you find us?",
             subtitle: "Helps us reach more plant lovers like you.",
+            pendingChip: nil,
             options: [
                 QuizOption(value: "social", label: "Social media", icon: "bubble.left.and.bubble.right.fill"),
                 QuizOption(value: "app_store", label: "App Store search", icon: "magnifyingglass"),
@@ -102,10 +93,9 @@ struct OnboardingView: View {
         ),
         QuizQuestion(
             id: "plantCount",
-            icon: "leaf.fill",
-            tint: Theme.Color.leaf,
-            title: "How many plants do you have?",
-            subtitle: "We'll shape your garden around your collection.",
+            title: "How many plants live with you?",
+            subtitle: "Your reminders and tips are sized to your collection.",
+            pendingChip: "Collection size…",
             options: [
                 QuizOption(value: "none", label: "No plants yet", icon: "sparkles"),
                 QuizOption(value: "1_5", label: "1 to 5", icon: "leaf"),
@@ -116,10 +106,9 @@ struct OnboardingView: View {
         ),
         QuizQuestion(
             id: "experience",
-            icon: "chart.line.uptrend.xyaxis",
-            tint: Theme.Color.terracotta,
             title: "How experienced are you with plants?",
             subtitle: "So we can pitch our tips at the right level.",
+            pendingChip: "Experience level…",
             options: [
                 QuizOption(value: "new", label: "Brand new", icon: "sparkles"),
                 QuizOption(value: "some", label: "Some experience", icon: "leaf.fill"),
@@ -128,10 +117,17 @@ struct OnboardingView: View {
         ),
     ]
 
-    /// Total steps: promise slides + quiz questions + pets + the final sign-up page.
-    private var totalPages: Int { slides.count + questions.count + 2 }
-    private var petsPage: Int { totalPages - 2 }
+    /// Total steps: hook + quiz questions + pets + plan assembly + sign-up.
+    private var totalPages: Int { 1 + questions.count + 3 }
+    private var petsPage: Int { totalPages - 3 }
+    private var buildPage: Int { totalPages - 2 }
     private var authPage: Int { totalPages - 1 }
+    /// Quiz step number for the "n of 4" header label (pets is the last question).
+    private var questionNumber: Int? {
+        if page >= 1 && page <= questions.count { return page }
+        if page == petsPage { return questions.count + 1 }
+        return nil
+    }
 
     var body: some View {
         ZStack {
@@ -160,9 +156,16 @@ struct OnboardingView: View {
         .onAppear {
             // Someone who already onboarded on this device is here to sign back in
             // (they signed out, or their session expired) — drop them on the auth
-            // page instead of replaying the intro and quiz. Back still works if they
-            // want to walk through it again.
-            if AppModel.hasOnboarded { page = authPage }
+            // page instead of replaying the intro and quiz, rehydrating their old
+            // answers so the plan card still reflects *their* home. Back still
+            // works if they want to walk through it again.
+            if AppModel.hasOnboarded {
+                page = authPage
+                if let v = OnboardingProfile.source { answers["source"] = v }
+                if let v = OnboardingProfile.plantCount { answers["plantCount"] = v }
+                if let v = OnboardingProfile.experience { answers["experience"] = v }
+                petsAnswer = PetContext.hasPets
+            }
             Analytics.log("onboarding_viewed")
         }
         .sheet(isPresented: $showEmail) {
@@ -183,8 +186,8 @@ struct OnboardingView: View {
                     .frame(width: 32, height: 32)
                     .background(Theme.Color.surface, in: Circle())
             }
-            .opacity(page == 0 ? 0 : 1)
-            .disabled(page == 0)
+            .opacity(page == 0 || page == buildPage ? 0 : 1)
+            .disabled(page == 0 || page == buildPage)
 
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
@@ -196,8 +199,17 @@ struct OnboardingView: View {
             }
             .frame(height: 6)
 
-            // Balance the back button so the bar stays centered.
-            Color.clear.frame(width: 32, height: 32)
+            // Question count during the quiz; a clear frame elsewhere keeps the bar centered.
+            Group {
+                if let n = questionNumber {
+                    Text("\(n) of \(questions.count + 1)")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Theme.Color.textSecondary)
+                } else {
+                    Color.clear
+                }
+            }
+            .frame(width: 38, height: 32)
         }
         .padding(.horizontal, Theme.Space.xl)
         .padding(.top, Theme.Space.m)
@@ -210,45 +222,63 @@ struct OnboardingView: View {
 
     @ViewBuilder
     private var currentPage: some View {
-        if page < slides.count {
-            slideView(slides[page])
-        } else if page < slides.count + questions.count {
-            questionPage(questions[page - slides.count])
+        if page == 0 {
+            hookPage
+        } else if page <= questions.count {
+            questionPage(questions[page - 1])
         } else if page == petsPage {
             petsQuiz
+        } else if page == buildPage {
+            PlanBuildView(rows: planBuildRows) {
+                if page == buildPage { goNext() }
+            }
         } else {
-            authHero
+            planReadyHero
         }
     }
 
-    private func slideView(_ slide: (icon: String, title: String, body: String)) -> some View {
+    // MARK: Hook (page 0) — show the aha, don't describe it
+
+    private var hookPage: some View {
         VStack(spacing: Theme.Space.xl) {
-            IconBadge(systemImage: slide.icon, size: 128)
+            ScanPreviewCard()
             VStack(spacing: Theme.Space.m) {
-                Text(slide.title)
+                Text("Point. Name.\nKeep it alive.")
                     .font(.largeTitle.weight(.bold))
                     .multilineTextAlignment(.center)
-                Text(slide.body)
+                Text("Instant plant ID, care tuned to your home — and real trees planted as you grow.")
                     .font(.body)
                     .multilineTextAlignment(.center)
                     .foregroundStyle(Theme.Color.textSecondary)
             }
+            // The differentiator strip: real trees, named partner, no vagueness.
+            HStack(spacing: Theme.Space.m) {
+                Image(systemName: "tree.fill")
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.Color.leafDeep)
+                Text("**Yearly members fund 10 real trees** through \(AppConfig.plantingPartner) — publicly counted, certificates included.")
+                    .font(.footnote)
+                    .foregroundStyle(Theme.Color.textSecondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(Theme.Space.m)
+            .card()
         }
-        .padding(.top, Theme.Space.xxl)
     }
 
-    /// A single-select quiz question: a hero badge, title, subtitle, then a vertical
-    /// list of option rows. Tapping an option records it and advances.
+    /// A single-select quiz question: eyebrow, title, subtitle, then a vertical list
+    /// of option rows. Tapping an option records it and advances.
     private func questionPage(_ question: QuizQuestion) -> some View {
-        VStack(spacing: Theme.Space.xl) {
-            IconBadge(systemImage: question.icon, size: 96, tint: question.tint)
-            VStack(spacing: Theme.Space.s) {
+        VStack(alignment: .leading, spacing: Theme.Space.xl) {
+            VStack(alignment: .leading, spacing: Theme.Space.s) {
+                Text("SHAPING YOUR CARE PLAN")
+                    .font(.caption.weight(.bold))
+                    .kerning(1.2)
+                    .foregroundStyle(Theme.Color.leaf)
                 Text(question.title)
                     .font(.title.weight(.bold))
-                    .multilineTextAlignment(.center)
                 Text(question.subtitle)
                     .font(.subheadline)
-                    .multilineTextAlignment(.center)
                     .foregroundStyle(Theme.Color.textSecondary)
             }
 
@@ -264,6 +294,7 @@ struct OnboardingView: View {
                 }
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func answer(_ question: QuizQuestion, _ option: QuizOption) {
@@ -309,34 +340,158 @@ struct OnboardingView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { goNext() }
     }
 
-    /// The final page: the *only* place auth appears. Hero here; buttons in `footer`.
-    private var authHero: some View {
-        VStack(spacing: Theme.Space.xl) {
-            IconBadge(systemImage: "leaf.fill", size: 128)
-            VStack(spacing: Theme.Space.m) {
-                Text("Create your free account")
-                    .font(.largeTitle.weight(.bold))
-                    .multilineTextAlignment(.center)
-                Text("Save your garden and pick up where you left off on any device. Next, you'll scan your first plant.")
-                    .font(.body)
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(Theme.Color.textSecondary)
-            }
-        }
-        .padding(.top, Theme.Space.xxl)
+    // MARK: Plan assembly + the personalized plan
+
+    /// The plan facts the quiz earned, reused by the assembly page and the summary
+    /// card — so what the user watched being built is exactly what they're asked to
+    /// save. Watering is always conservative (iOS-PRD §6: overwatering kills).
+    private var planBuildRows: [PlanBuildView.Row] {
+        var rows: [PlanBuildView.Row] = []
+        rows.append(.init(icon: "leaf.fill", text: collectionLine))
+        rows.append(.init(icon: "bell.fill", text: paceLine.title))
+        rows.append(.init(icon: "pawprint.fill",
+                          text: petsAnswer == true ? "Pet-safety alerts switched on"
+                                                   : "Toxicity flags on every scan"))
+        return rows
     }
 
-    // MARK: Footer (Continue for slides, auth on the final page)
+    private var collectionLine: String {
+        switch answers["plantCount"] {
+        case "none": return "Ready for your very first plant"
+        case "1_5": return "Sized for 1–5 plants"
+        case "6_10": return "Sized for 6–10 plants"
+        case "11_25": return "Sized for 11–25 plants"
+        case "25_plus": return "Sized for a 25+ plant jungle"
+        default: return "Sized to your collection"
+        }
+    }
+
+    private var paceLine: (title: String, detail: String) {
+        switch answers["experience"] {
+        case "expert":
+            return ("Expert-level care depth", "Tips that skip the basics")
+        case "some":
+            return ("Reminders at your pace", "Tips that build on what you know")
+        default:
+            return ("Gentle reminders, beginner pace", "Tips pitched for your first plants")
+        }
+    }
+
+    /// The final page: the *only* place auth appears — framed as saving the plan
+    /// they just watched being assembled. Buttons live in `footer`.
+    private var planReadyHero: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.l) {
+            VStack(alignment: .leading, spacing: Theme.Space.s) {
+                Text("Your care plan is ready 🌱")
+                    .font(.title.weight(.bold))
+                Text("Create a free account to save it — then you'll scan your first plant.")
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.Color.textSecondary)
+            }
+
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: Theme.Space.s) {
+                    Image(systemName: "leaf.fill")
+                        .font(.footnote)
+                        .foregroundStyle(Theme.Color.leafDeep)
+                    Text("Made for your home")
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(Theme.Color.leafDeep)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(Theme.Space.l)
+                .background(Theme.Color.leaf.opacity(0.08))
+
+                VStack(spacing: 0) {
+                    planRow(icon: "drop.fill", tint: Theme.Color.leaf,
+                            title: "Conservative watering windows",
+                            detail: "Overwatering is the #1 plant killer — we err dry")
+                    Divider().overlay(Theme.Color.separator)
+                    planRow(icon: petsAnswer == true ? "pawprint.fill" : "shield.fill",
+                            tint: Theme.Color.terracotta,
+                            title: petsAnswer == true ? "Pet-safety alerts on every scan"
+                                                      : "Toxicity flags on every scan",
+                            detail: petsAnswer == true
+                                ? "Toxic plants called out before they come home"
+                                : "Know what's safe before it comes home")
+                    Divider().overlay(Theme.Color.separator)
+                    planRow(icon: "bell.fill", tint: Theme.Color.leaf,
+                            title: paceLine.title, detail: paceLine.detail)
+                }
+                .padding(.horizontal, Theme.Space.l)
+            }
+            .background(Theme.Color.surface)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
+                    .strokeBorder(Theme.Color.separator.opacity(0.7), lineWidth: 1)
+            )
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func planRow(icon: String, tint: Color, title: String, detail: String) -> some View {
+        HStack(spacing: Theme.Space.m) {
+            Image(systemName: icon)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(tint)
+                .frame(width: 30, height: 30)
+                .background(tint.opacity(0.12), in: Circle())
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title).font(.subheadline.weight(.semibold))
+                Text(detail).font(.caption).foregroundStyle(Theme.Color.textSecondary)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, Theme.Space.m)
+    }
+
+    // MARK: Footer (Continue on the hook, plan chips during the quiz, auth at the end)
 
     @ViewBuilder
     private var footer: some View {
-        if page < slides.count {
-            Button("Continue") { goNext() }
-                .buttonStyle(.primary)
+        if page == 0 {
+            VStack(spacing: Theme.Space.m) {
+                Button("Get started") { goNext() }
+                    .buttonStyle(.primary)
+                Text("Free to start · No credit card")
+                    .font(.caption2)
+                    .foregroundStyle(Theme.Color.textSecondary)
+            }
+        } else if page <= questions.count || page == petsPage {
+            planSoFarStrip
         } else if page == authPage {
             authButtons
         }
-        // Quiz + pets pages advance on tap — no footer button.
+        // The plan-assembly page advances itself — no footer.
+    }
+
+    /// The investment strip: answers visibly accumulate into the plan, so each tap
+    /// buys something the sign-up page later asks them to save.
+    private var planSoFarStrip: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.s) {
+            Text("Your plan so far")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(Theme.Color.textSecondary)
+            FlowChips(chips: earnedChips, pending: pendingChip)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var earnedChips: [String] {
+        var chips: [String] = []
+        if answers["plantCount"] != nil { chips.append(collectionLine) }
+        if answers["experience"] != nil { chips.append(paceLine.title) }
+        if let pets = petsAnswer {
+            chips.append(pets ? "Pet-safety alerts on" : "Toxicity flags on")
+        }
+        return chips
+    }
+
+    private var pendingChip: String? {
+        if page >= 1 && page <= questions.count { return questions[page - 1].pendingChip }
+        if page == petsPage { return "Pets at home…" }
+        return nil
     }
 
     private var authButtons: some View {
@@ -372,7 +527,9 @@ struct OnboardingView: View {
     private func goBack() {
         guard page > 0 else { return }
         forward = false
-        withAnimation(.easeInOut(duration: 0.28)) { page -= 1 }
+        // Back from the sign-up page skips the auto-advancing assembly beat.
+        let target = page == authPage ? petsPage : page - 1
+        withAnimation(.easeInOut(duration: 0.28)) { page = target }
     }
 
     private func signIn(_ method: String, _ action: @escaping () async throws -> Void) async {
@@ -387,6 +544,272 @@ struct OnboardingView: View {
             Analytics.log("sign_in_failed", ["method": method])
         }
         isWorking = false
+    }
+}
+
+// MARK: - Hook visual
+
+/// A mock viewfinder mid-identification — the product's aha in one glance: corner
+/// brackets, a plant, and the result chip already filled in.
+private struct ScanPreviewCard: View {
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: [Theme.Color.leafDeep, Color(red: 0.12, green: 0.24, blue: 0.14)],
+                startPoint: .topLeading, endPoint: .bottomTrailing
+            )
+
+            // A simple potted plant, built from the house glyphs.
+            VStack(spacing: -6) {
+                ZStack {
+                    Image(systemName: "leaf.fill")
+                        .font(.system(size: 64))
+                        .rotationEffect(.degrees(-38))
+                        .offset(x: -26, y: 6)
+                    Image(systemName: "leaf.fill")
+                        .font(.system(size: 64))
+                        .rotationEffect(.degrees(38))
+                        .scaleEffect(x: -1)
+                        .offset(x: 26, y: 6)
+                    Image(systemName: "leaf.fill")
+                        .font(.system(size: 58))
+                        .rotationEffect(.degrees(0))
+                        .offset(y: -22)
+                }
+                .foregroundStyle(Theme.Color.leaf)
+                UnevenRoundedRectangle(
+                    topLeadingRadius: 4, bottomLeadingRadius: 10,
+                    bottomTrailingRadius: 10, topTrailingRadius: 4
+                )
+                .fill(Theme.Color.terracotta)
+                .frame(width: 84, height: 46)
+            }
+            .padding(.bottom, 52)
+
+            // Viewfinder corner brackets.
+            CornerBrackets()
+                .stroke(.white.opacity(0.85), style: StrokeStyle(lineWidth: 3.5, lineCap: .round))
+                .padding(Theme.Space.xl)
+                .padding(.bottom, 56)
+        }
+        .frame(height: 320)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
+        .overlay(alignment: .bottom) {
+            // The result chip: identified, safe, sorted.
+            HStack(spacing: Theme.Space.m) {
+                Image(systemName: "leaf.fill")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Theme.Color.leaf)
+                    .frame(width: 36, height: 36)
+                    .background(Theme.Color.leaf.opacity(0.12), in: Circle())
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Monstera deliciosa")
+                        .font(.subheadline.weight(.semibold))
+                    HStack(spacing: 4) {
+                        Image(systemName: "checkmark")
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(Theme.Color.leaf)
+                        Text("Identified in seconds · water every 9 days")
+                            .font(.caption)
+                            .foregroundStyle(Theme.Color.textSecondary)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(Theme.Space.m)
+            .background(Theme.Color.surface, in: RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous))
+            .padding(Theme.Space.l)
+        }
+    }
+}
+
+/// Four L-shaped viewfinder brackets, drawn in the padded rect.
+private struct CornerBrackets: Shape {
+    func path(in rect: CGRect) -> Path {
+        var p = Path()
+        let arm: CGFloat = 24
+        // Top-left
+        p.move(to: CGPoint(x: rect.minX, y: rect.minY + arm))
+        p.addLine(to: CGPoint(x: rect.minX, y: rect.minY))
+        p.addLine(to: CGPoint(x: rect.minX + arm, y: rect.minY))
+        // Top-right
+        p.move(to: CGPoint(x: rect.maxX - arm, y: rect.minY))
+        p.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        p.addLine(to: CGPoint(x: rect.maxX, y: rect.minY + arm))
+        // Bottom-right
+        p.move(to: CGPoint(x: rect.maxX, y: rect.maxY - arm))
+        p.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+        p.addLine(to: CGPoint(x: rect.maxX - arm, y: rect.maxY))
+        // Bottom-left
+        p.move(to: CGPoint(x: rect.minX + arm, y: rect.maxY))
+        p.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
+        p.addLine(to: CGPoint(x: rect.minX, y: rect.maxY - arm))
+        return p
+    }
+}
+
+// MARK: - Plan assembly (the investment beat)
+
+/// "Growing your care plan…": the quiz answers check themselves off one by one
+/// around the dormant seedling, then the page advances itself. Pure theater — the
+/// personalization is instant — but it converts the quiz into a *thing they own*
+/// before the sign-up page asks them to save it.
+private struct PlanBuildView: View {
+    struct Row: Identifiable {
+        let icon: String
+        let text: String
+        var id: String { text }
+    }
+
+    let rows: [Row]
+    let onFinished: () -> Void
+
+    @State private var shownRows = 0
+    @State private var ringProgress: CGFloat = 0.1
+
+    var body: some View {
+        VStack(spacing: Theme.Space.xl) {
+            ZStack {
+                Circle()
+                    .fill(Theme.Color.leaf.opacity(0.08))
+                    .frame(width: 150, height: 150)
+                Circle()
+                    .stroke(Theme.Color.separator, lineWidth: 7)
+                    .frame(width: 150, height: 150)
+                Circle()
+                    .trim(from: 0, to: ringProgress)
+                    .stroke(Theme.Color.leaf, style: StrokeStyle(lineWidth: 7, lineCap: .round))
+                    .frame(width: 150, height: 150)
+                    .rotationEffect(.degrees(-90))
+                Image(BudSprites.dormant)
+                    .resizable()
+                    .interpolation(.none)
+                    .scaledToFit()
+                    .frame(width: 84, height: 84)
+            }
+            .padding(.top, Theme.Space.xxl)
+
+            VStack(spacing: Theme.Space.s) {
+                Text("Growing your care plan…")
+                    .font(.title2.weight(.bold))
+                Text("Putting your answers to work.")
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.Color.textSecondary)
+            }
+
+            VStack(spacing: 0) {
+                ForEach(Array(rows.enumerated()), id: \.element.id) { i, row in
+                    if i > 0 { Divider().overlay(Theme.Color.separator) }
+                    HStack(spacing: Theme.Space.m) {
+                        if i < shownRows {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.title3)
+                                .foregroundStyle(Theme.Color.leaf)
+                        } else {
+                            ProgressView().tint(Theme.Color.leaf)
+                                .frame(width: 22, height: 22)
+                        }
+                        Text(row.text)
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(i < shownRows ? Theme.Color.textPrimary
+                                                           : Theme.Color.textSecondary)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.vertical, Theme.Space.m)
+                }
+            }
+            .padding(.horizontal, Theme.Space.l)
+            .card()
+        }
+        .onAppear {
+            Analytics.log("plan_build_shown")
+            // Real delays, not animation delays: the checkmark/spinner swap is
+            // structural, so the value change itself must be staggered.
+            for i in 1...rows.count {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.55 * Double(i)) {
+                    withAnimation(.easeOut(duration: 0.25)) {
+                        shownRows = i
+                        ringProgress = 0.1 + 0.9 * CGFloat(i) / CGFloat(rows.count)
+                    }
+                }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.55 * Double(rows.count) + 0.9) {
+                onFinished()
+            }
+        }
+    }
+}
+
+/// Wrapping row of plan chips: solid for earned facts, dashed for the one in
+/// progress. Simple leading-aligned flow — the chip count is tiny.
+private struct FlowChips: View {
+    let chips: [String]
+    let pending: String?
+
+    var body: some View {
+        FlowLayout(spacing: Theme.Space.s) {
+            ForEach(chips, id: \.self) { chip in
+                HStack(spacing: 5) {
+                    Image(systemName: "checkmark")
+                        .font(.caption2.weight(.bold))
+                    Text(chip).font(.caption.weight(.semibold))
+                }
+                .foregroundStyle(Theme.Color.leafDeep)
+                .padding(.horizontal, Theme.Space.m)
+                .padding(.vertical, 6)
+                .background(Theme.Color.leaf.opacity(0.12), in: Capsule())
+            }
+            if let pending {
+                Text(pending)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(Theme.Color.textSecondary)
+                    .padding(.horizontal, Theme.Space.m)
+                    .padding(.vertical, 6)
+                    .background(
+                        Capsule().strokeBorder(
+                            Theme.Color.separator,
+                            style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                    )
+            }
+        }
+    }
+}
+
+/// Minimal wrapping layout for the chip strip.
+private struct FlowLayout: Layout {
+    var spacing: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        arrange(proposal: proposal, subviews: subviews).size
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let placement = arrange(proposal: proposal, subviews: subviews)
+        for (subview, point) in zip(subviews, placement.points) {
+            subview.place(
+                at: CGPoint(x: bounds.minX + point.x, y: bounds.minY + point.y),
+                proposal: .unspecified)
+        }
+    }
+
+    private func arrange(proposal: ProposedViewSize, subviews: Subviews)
+        -> (size: CGSize, points: [CGPoint]) {
+        let maxWidth = proposal.width ?? .infinity
+        var points: [CGPoint] = []
+        var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0, width: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > 0, x + size.width > maxWidth {
+                x = 0
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            points.append(CGPoint(x: x, y: y))
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+            width = max(width, x - spacing)
+        }
+        return (CGSize(width: width, height: y + rowHeight), points)
     }
 }
 
