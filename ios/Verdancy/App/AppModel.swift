@@ -53,8 +53,6 @@ final class AppModel {
         !isSubscribed && garden.plants.count >= AppConfig.freeGardenLimit
     }
 
-    private var knewPlants = false
-
     init(auth: AuthService) {
         self.auth = auth
         let api = APIClient(auth: auth)
@@ -75,15 +73,23 @@ final class AppModel {
 
         garden.onChanged = { [weak self] plants in
             guard let self else { return }
-            let nowHasPlants = !plants.isEmpty
-            let isFirstPlant = nowHasPlants && !self.knewPlants
-            self.knewPlants = nowHasPlants
             // Snoozed tasks still count as due for the streak (no gaming it).
             self.streak.refresh(allCaughtUp: self.garden.dueItems(includingSnoozed: true).isEmpty)
             self.publishWidgetSummary()
             Task {
-                if isFirstPlant { await self.notifications.requestAuthorizationIfNeeded() }
                 await self.notifications.reschedule(for: plants, streak: self.streak.current)
+            }
+        }
+
+        // The permission ask is anchored to the user's own save action (their first
+        // plant), never to a refresh that happens to bring plants down — a cold
+        // launch must never open with a permission sheet.
+        garden.onPlantSaved = { [weak self] _ in
+            guard let self, self.garden.plants.count == 1 else { return }
+            Task {
+                await self.notifications.requestAuthorizationIfNeeded()
+                await self.notifications.reschedule(
+                    for: self.garden.plants, streak: self.streak.current)
             }
         }
     }
@@ -186,7 +192,6 @@ final class AppModel {
 
     func bootstrap() async {
         garden.hydrateFromSnapshot()
-        knewPlants = !garden.plants.isEmpty // returning user → don't treat as first plant
         await entitlement.bootstrap()
         if await auth.isSignedIn() {
             phase = .signedIn
@@ -362,7 +367,6 @@ final class AppModel {
         notifications.clearTrialReminder()
         streak.reset()
         garden.reset()
-        knewPlants = false
         lastCheckinDay = nil
         treeCelebration = nil
         lastPurchasedPlan = nil

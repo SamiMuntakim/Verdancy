@@ -29,6 +29,12 @@ final class GardenStore {
     /// can update the streak + reschedule reminders. Does NOT fire on snapshot hydrate.
     var onChanged: (([Plant]) -> Void)?
 
+    /// Invoked only when the user saves a plant (`insert`), never on refresh or
+    /// hydrate — the hook for save-anchored moments like the first-plant
+    /// notification-permission ask (iOS-PRD §12 Phase 3: request after the first
+    /// plant, not on a cold launch that happens to hydrate a garden).
+    var onPlantSaved: ((Plant) -> Void)?
+
     /// Invoked whenever fresh tree status arrives from the server (refresh or an
     /// explicit grant re-read), with the previous status for comparison — how the
     /// app notices a subscription grant landing (e.g. the Day-7 annual 10-tree
@@ -171,6 +177,7 @@ final class GardenStore {
         plants.insert(plant, at: 0)
         SnapshotStore.save(GardenSnapshot(plants: plants, trees: trees))
         onChanged?(plants)
+        onPlantSaved?(plant)
         ensureBuddy(for: plant)
     }
 
