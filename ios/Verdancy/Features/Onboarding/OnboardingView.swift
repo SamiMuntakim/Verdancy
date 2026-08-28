@@ -237,32 +237,39 @@ struct OnboardingView: View {
         }
     }
 
-    // MARK: Hook (page 0) — show the aha, don't describe it
+    // MARK: Hook (page 0) — the website hero, in-app (verdancy.app: visual first
+    // on small screens, then pill → headline → lede; same tokens both themes)
 
     private var hookPage: some View {
-        VStack(spacing: Theme.Space.xl) {
-            ScanPreviewCard()
+        VStack(spacing: Theme.Space.l) {
+            HeroScanCard()
             VStack(spacing: Theme.Space.m) {
-                Text("Point. Name.\nKeep it alive.")
+                // pill-badge: green dot in a tinted ring + the tree fact.
+                HStack(spacing: Theme.Space.s) {
+                    Circle()
+                        .fill(Theme.Color.leaf)
+                        .frame(width: 8, height: 8)
+                        .background(Circle().fill(Theme.Color.leaf.opacity(0.12)).frame(width: 16, height: 16))
+                    Text("Real trees, publicly counted")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(Theme.Color.textSecondary)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 7)
+                .background(Theme.Color.surface, in: Capsule())
+                .overlay(Capsule().strokeBorder(Theme.Color.separator, lineWidth: 1))
+
+                (Text("You grow plants.\n").foregroundStyle(Theme.Color.textPrimary)
+                 + Text("We grow forests.").foregroundStyle(Theme.leafGradient))
                     .font(.largeTitle.weight(.bold))
                     .multilineTextAlignment(.center)
-                Text("Instant plant ID, care tuned to your home — and real trees planted as you grow.")
-                    .font(.body)
+
+                Text("Any plant's name, pet-safety, and care in seconds — and **10 real trees** planted with \(AppConfig.plantingPartner).")
+                    .font(.subheadline)
                     .multilineTextAlignment(.center)
                     .foregroundStyle(Theme.Color.textSecondary)
+                    .padding(.horizontal, Theme.Space.s)
             }
-            // The differentiator strip: real trees, named partner, no vagueness.
-            HStack(spacing: Theme.Space.m) {
-                Image(systemName: "tree.fill")
-                    .font(.subheadline)
-                    .foregroundStyle(Theme.Color.leafDeep)
-                Text("**Yearly members fund 10 real trees** through \(AppConfig.plantingPartner) — publicly counted, certificates included.")
-                    .font(.footnote)
-                    .foregroundStyle(Theme.Color.textSecondary)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(Theme.Space.m)
-            .card()
         }
     }
 
@@ -547,87 +554,270 @@ struct OnboardingView: View {
     }
 }
 
-// MARK: - Hook visual
+// MARK: - Hook visual (ported from the verdancy.app hero phone mock)
 
-/// A mock viewfinder mid-identification — the product's aha in one glance: corner
-/// brackets, a plant, and the result chip already filled in.
-private struct ScanPreviewCard: View {
+/// The website hero's phone screen, rendered natively: scan photo with the plant
+/// art, corner brackets and a glowing sweep line, then the identification result
+/// panel — plus the two floating badges. Values are lifted from the site source
+/// (Verdancy-Web `index.astro` / `verdancy.css`), not approximated.
+private struct HeroScanCard: View {
+    @Environment(\.colorScheme) private var scheme
+    @State private var sweepDown = false
+    @State private var bob = false
+
+    /// `.scan-photo` background: #EAF6EC→#cfe9d4 light, #1f2a1e→#16201a dark.
+    private var photoGradient: LinearGradient {
+        let colors = scheme == .dark
+            ? [Color(red: 0.122, green: 0.165, blue: 0.118), Color(red: 0.086, green: 0.125, blue: 0.102)]
+            : [Color(red: 0.918, green: 0.965, blue: 0.925), Color(red: 0.812, green: 0.914, blue: 0.831)]
+        return LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing)
+    }
+
     var body: some View {
         ZStack {
-            LinearGradient(
-                colors: [Theme.Color.leafDeep, Color(red: 0.12, green: 0.24, blue: 0.14)],
-                startPoint: .topLeading, endPoint: .bottomTrailing
+            // .glow: soft radial leaf halo behind the card.
+            RadialGradient(
+                colors: [Theme.Color.leaf.opacity(0.18), .clear],
+                center: .center, startRadius: 20, endRadius: 230
             )
 
-            // A simple potted plant, built from the house glyphs.
-            VStack(spacing: -6) {
-                ZStack {
-                    Image(systemName: "leaf.fill")
-                        .font(.system(size: 64))
-                        .rotationEffect(.degrees(-38))
-                        .offset(x: -26, y: 6)
-                    Image(systemName: "leaf.fill")
-                        .font(.system(size: 64))
-                        .rotationEffect(.degrees(38))
-                        .scaleEffect(x: -1)
-                        .offset(x: 26, y: 6)
-                    Image(systemName: "leaf.fill")
-                        .font(.system(size: 58))
-                        .rotationEffect(.degrees(0))
-                        .offset(y: -22)
-                }
-                .foregroundStyle(Theme.Color.leaf)
-                UnevenRoundedRectangle(
-                    topLeadingRadius: 4, bottomLeadingRadius: 10,
-                    bottomTrailingRadius: 10, topTrailingRadius: 4
-                )
-                .fill(Theme.Color.terracotta)
-                .frame(width: 84, height: 46)
+            VStack(spacing: 0) {
+                scanPhoto
+                scanResult
             }
-            .padding(.bottom, 52)
-
-            // Viewfinder corner brackets.
-            CornerBrackets()
-                .stroke(.white.opacity(0.85), style: StrokeStyle(lineWidth: 3.5, lineCap: .round))
-                .padding(Theme.Space.xl)
-                .padding(.bottom, 56)
+            .background(Theme.Color.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    .strokeBorder(Theme.Color.separator, lineWidth: 1)
+            )
+            .shadow(color: Color(red: 0.173, green: 0.361, blue: 0.2).opacity(0.16),
+                    radius: 25, y: 9)
+            .padding(.horizontal, Theme.Space.xl)
         }
-        .frame(height: 320)
-        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
-        .overlay(alignment: .bottom) {
-            // The result chip: identified, safe, sorted.
-            HStack(spacing: Theme.Space.m) {
-                Image(systemName: "leaf.fill")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(Theme.Color.leaf)
-                    .frame(width: 36, height: 36)
-                    .background(Theme.Color.leaf.opacity(0.12), in: Circle())
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Monstera deliciosa")
-                        .font(.subheadline.weight(.semibold))
-                    HStack(spacing: 4) {
-                        Image(systemName: "checkmark")
-                            .font(.caption2.weight(.bold))
-                            .foregroundStyle(Theme.Color.leaf)
-                        Text("Identified in seconds · water every 9 days")
-                            .font(.caption)
-                            .foregroundStyle(Theme.Color.textSecondary)
-                    }
-                }
-                Spacer(minLength: 0)
+        .overlay(alignment: .topLeading) {
+            FloatBadge(emoji: "🌱", title: "Buddy leveled up", subtitle: "Orbi is blooming")
+                .offset(x: 2, y: 34)
+                .offset(y: bob ? -4 : 4)
+        }
+        .overlay(alignment: .bottomTrailing) {
+            FloatBadge(emoji: "🔥", title: "12-day streak", subtitle: "Nice work")
+                .offset(x: 6, y: -8)
+                .offset(y: bob ? 4 : -4)
+        }
+        .onAppear {
+            withAnimation(.easeInOut(duration: 3).repeatForever(autoreverses: true)) {
+                sweepDown = true
             }
-            .padding(Theme.Space.m)
-            .background(Theme.Color.surface, in: RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous))
-            .padding(Theme.Space.l)
+            withAnimation(.easeInOut(duration: 4).repeatForever(autoreverses: true)) {
+                bob = true
+            }
+        }
+    }
+
+    private var scanPhoto: some View {
+        ZStack {
+            photoGradient
+            PlantArt()
+                .padding(Theme.Space.xxl)
+            CornerBrackets()
+                .stroke(.white.opacity(0.9), style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                .padding(18)
+            // .scan-sweep: a glowing line drifting down the frame and back.
+            GeometryReader { geo in
+                Rectangle()
+                    .fill(Theme.Color.leaf)
+                    .frame(height: 3)
+                    .shadow(color: Theme.Color.leaf.opacity(0.9), radius: 7)
+                    .padding(.horizontal, 18)
+                    .offset(y: sweepDown ? geo.size.height - 22 : 22)
+            }
+        }
+        .frame(height: 208)
+        .clipped()
+    }
+
+    private var scanResult: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.m) {
+            HStack(alignment: .top, spacing: Theme.Space.m) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Calathea orbifolia")
+                        .font(.system(size: 17, weight: .bold))
+                    Text("Marantaceae · Prayer-plant family")
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(Theme.Color.textSecondary)
+                }
+                Spacer()
+                Text("96%")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(Theme.Color.leaf)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 4)
+                    .background(Theme.Color.leaf.opacity(0.12), in: Capsule())
+            }
+            HStack(spacing: Theme.Space.s) {
+                chip(icon: "checkmark", label: "Pet-safe")
+                chip(icon: nil, label: "Easy care")
+            }
+            VStack(alignment: .leading, spacing: 10) {
+                careItem(icon: "drop", bold: "Water", rest: "in 4 days")
+                careItem(icon: "sun.max", bold: "Light", rest: "bright, indirect")
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(Theme.Space.l)
+    }
+
+    private func chip(icon: String?, label: String) -> some View {
+        HStack(spacing: 6) {
+            if let icon {
+                Image(systemName: icon).font(.system(size: 11, weight: .bold))
+            }
+            Text(label).font(.system(size: 13, weight: .semibold))
+        }
+        .foregroundStyle(Theme.Color.leaf)
+        .padding(.horizontal, 12)
+        .frame(height: 30)
+        .background(Theme.Color.leaf.opacity(0.12), in: Capsule())
+    }
+
+    private func careItem(icon: String, bold: String, rest: String) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 15))
+                .foregroundStyle(Theme.Color.leaf)
+                .frame(width: 20)
+            (Text("\(bold) ").fontWeight(.semibold).foregroundStyle(Theme.Color.textPrimary)
+             + Text(rest).foregroundStyle(Theme.Color.textSecondary))
+                .font(.system(size: 13.5))
         }
     }
 }
 
-/// Four L-shaped viewfinder brackets, drawn in the padded rect.
+/// `.float-badge`: a small floating surface card with an emoji and two lines.
+private struct FloatBadge: View {
+    let emoji: String
+    let title: String
+    let subtitle: String
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Text(emoji).font(.system(size: 20))
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title).font(.system(size: 13, weight: .bold))
+                Text(subtitle)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(Theme.Color.textSecondary)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(Theme.Color.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Theme.Color.separator, lineWidth: 1)
+        )
+        .shadow(color: Color(red: 0.173, green: 0.361, blue: 0.2).opacity(0.16), radius: 25, y: 9)
+    }
+}
+
+/// The hero's plant illustration, ported path-for-path from the site's inline SVG
+/// (200×200 viewBox): a stem, four gradient leaves, and a light sprout leaf.
+private struct PlantArt: View {
+    private static let leafGradient = LinearGradient(
+        colors: [Color(red: 0.435, green: 0.706, blue: 0.467),   // #6FB477
+                 Color(red: 0.173, green: 0.361, blue: 0.2)],     // #2C5C33
+        startPoint: .topLeading, endPoint: .bottomTrailing
+    )
+
+    var body: some View {
+        Canvas { context, size in
+            let s = min(size.width, size.height) / 200
+            let dx = (size.width - 200 * s) / 2
+            let dy = (size.height - 200 * s) / 2
+            let t = CGAffineTransform(translationX: dx, y: dy).scaledBy(x: s, y: s)
+
+            func draw(_ path: Path, opacity: Double, gradient: Bool = true, color: Color = .clear) {
+                let scaled = path.applying(t)
+                if gradient {
+                    context.opacity = opacity
+                    context.fill(scaled, with: .linearGradient(
+                        Gradient(colors: [Color(red: 0.435, green: 0.706, blue: 0.467),
+                                          Color(red: 0.173, green: 0.361, blue: 0.2)]),
+                        startPoint: CGPoint(x: dx, y: dy),
+                        endPoint: CGPoint(x: dx + 200 * s, y: dy + 200 * s)))
+                } else {
+                    context.opacity = opacity
+                    context.fill(scaled, with: .color(color))
+                }
+                context.opacity = 1
+            }
+
+            // Stem: M100 175c0-40-4-70-4-70
+            var stem = Path()
+            stem.move(to: CGPoint(x: 100, y: 175))
+            stem.addCurve(to: CGPoint(x: 96, y: 105),
+                          control1: CGPoint(x: 100, y: 135), control2: CGPoint(x: 96, y: 105))
+            context.stroke(stem.applying(t),
+                           with: .color(Color(red: 0.243, green: 0.494, blue: 0.275)), // #3E7E46
+                           style: StrokeStyle(lineWidth: 5 * s, lineCap: .round))
+
+            // Left leaf: M96 118c-20-6-34-26-32-52 24 2 40 22 40 48
+            var leafL = Path()
+            leafL.move(to: CGPoint(x: 96, y: 118))
+            leafL.addCurve(to: CGPoint(x: 64, y: 66),
+                           control1: CGPoint(x: 76, y: 112), control2: CGPoint(x: 62, y: 92))
+            leafL.addCurve(to: CGPoint(x: 104, y: 114),
+                           control1: CGPoint(x: 88, y: 68), control2: CGPoint(x: 104, y: 88))
+            draw(leafL, opacity: 0.95)
+
+            // Right leaf: M104 112c22-4 36-24 36-50-24 0-42 20-42 46
+            var leafR = Path()
+            leafR.move(to: CGPoint(x: 104, y: 112))
+            leafR.addCurve(to: CGPoint(x: 140, y: 62),
+                           control1: CGPoint(x: 126, y: 108), control2: CGPoint(x: 140, y: 88))
+            leafR.addCurve(to: CGPoint(x: 98, y: 108),
+                           control1: CGPoint(x: 116, y: 62), control2: CGPoint(x: 98, y: 82))
+            draw(leafR, opacity: 1)
+
+            // Lower-left leaf: M98 128c-24 2-42 18-46 44 26 4 48-12 52-38
+            var leafBL = Path()
+            leafBL.move(to: CGPoint(x: 98, y: 128))
+            leafBL.addCurve(to: CGPoint(x: 52, y: 172),
+                            control1: CGPoint(x: 74, y: 130), control2: CGPoint(x: 56, y: 146))
+            leafBL.addCurve(to: CGPoint(x: 104, y: 134),
+                            control1: CGPoint(x: 78, y: 176), control2: CGPoint(x: 100, y: 160))
+            draw(leafBL, opacity: 0.85)
+
+            // Lower-right leaf: M102 132c24 0 44 14 50 40-26 6-50-8-56-34
+            var leafBR = Path()
+            leafBR.move(to: CGPoint(x: 102, y: 132))
+            leafBR.addCurve(to: CGPoint(x: 152, y: 172),
+                            control1: CGPoint(x: 126, y: 132), control2: CGPoint(x: 146, y: 146))
+            leafBR.addCurve(to: CGPoint(x: 96, y: 138),
+                            control1: CGPoint(x: 126, y: 178), control2: CGPoint(x: 102, y: 164))
+            draw(leafBR, opacity: 0.9)
+
+            // Sprout: M100 96c-14 0-24-14-24-34 18 0 28 14 28 34  (#8FD69A)
+            var sprout = Path()
+            sprout.move(to: CGPoint(x: 100, y: 96))
+            sprout.addCurve(to: CGPoint(x: 76, y: 62),
+                            control1: CGPoint(x: 86, y: 96), control2: CGPoint(x: 76, y: 82))
+            sprout.addCurve(to: CGPoint(x: 104, y: 96),
+                            control1: CGPoint(x: 94, y: 62), control2: CGPoint(x: 104, y: 76))
+            draw(sprout, opacity: 0.9, gradient: false,
+                 color: Color(red: 0.561, green: 0.839, blue: 0.604)) // #8FD69A
+        }
+        .aspectRatio(1, contentMode: .fit)
+    }
+}
+
+/// Four L-shaped viewfinder brackets (site `.scan-frame`: 26px arms), drawn in
+/// the padded rect.
 private struct CornerBrackets: Shape {
     func path(in rect: CGRect) -> Path {
         var p = Path()
-        let arm: CGFloat = 24
+        let arm: CGFloat = 26
         // Top-left
         p.move(to: CGPoint(x: rect.minX, y: rect.minY + arm))
         p.addLine(to: CGPoint(x: rect.minX, y: rect.minY))
