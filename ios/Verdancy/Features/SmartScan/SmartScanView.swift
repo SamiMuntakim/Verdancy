@@ -115,12 +115,29 @@ private struct SmartScanContent: View {
                 }
             }
         case .paywall:
-            messageCard(
-                icon: "leaf.fill",
-                title: "That's your \(AppConfig.freeDailyScanCount) free scans for today",
-                message: "Go Premium for unlimited IDs, plus care plans, reminders, diagnoses, blooming buddies, and real trees planted as you grow.",
-                primary: ("See Premium", { showPaywall = true })
-            )
+            // A soft wall, never a dead end: the free tier resets tomorrow, or they
+            // can go unlimited now.
+            VStack(spacing: Theme.Space.m) {
+                IconBadge(systemImage: "leaf.fill")
+                VStack(spacing: Theme.Space.xs) {
+                    Text("That's your \(AppConfig.freeDailyScanCount) free scans for today")
+                        .font(.title3.weight(.semibold))
+                        .multilineTextAlignment(.center)
+                    Text("Your free scans reset tomorrow. Or go Premium for unlimited IDs, plus care plans, reminders, diagnoses, blooming buddies, and real trees.")
+                        .font(.subheadline)
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(Theme.Color.textSecondary)
+                }
+                Button("Go unlimited") { showPaywall = true }
+                    .buttonStyle(.primary)
+                    .padding(.top, Theme.Space.s)
+                Button("Come back tomorrow") { vm.reset() }
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(Theme.Color.textSecondary)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(Theme.Space.xl)
+            .card()
         case .rateLimited:
             messageCard(
                 icon: "tortoise.fill",
@@ -138,22 +155,47 @@ private struct SmartScanContent: View {
         }
     }
 
+    /// The diagnose gate as a value teaser: show the shape of the triage plan they'd
+    /// get, redacted behind a lock, so the ask lands on proven intent. The redaction
+    /// keeps it honestly unreadable — no fabricated diagnosis is shown.
     private var diagnoseGate: some View {
-        VStack(spacing: Theme.Space.m) {
-            IconBadge(systemImage: "stethoscope")
+        VStack(spacing: Theme.Space.l) {
+            LockedPreviewCard(
+                icon: "stethoscope",
+                header: "Triage plan",
+                badge: "Moderate"
+            ) {
+                VStack(alignment: .leading, spacing: Theme.Space.m) {
+                    lockedRow("Likely cause", "Overwatering has led to early root rot on the lower leaves.")
+                    lockedRow("Do this now", "Let the top two inches dry out, then repot into fresh, well-draining soil.")
+                    lockedRow("Watch for", "New growth staying firm and green over the next two weeks.")
+                }
+            }
+
             VStack(spacing: Theme.Space.xs) {
-                Text("Diagnose is a subscriber feature").font(.title3.weight(.semibold))
-                Text("Subscribe to get a triage plan for any ailing plant, plus unlimited identify, care reminders, and your blooming buddies.")
-                    .font(.subheadline).multilineTextAlignment(.center)
+                Text("Diagnose a sick plant with Premium")
+                    .font(.headline)
+                    .multilineTextAlignment(.center)
+                Text("A clear triage plan for any ailing plant, plus unlimited identify, care plans, and your blooming buddies.")
+                    .font(.subheadline)
+                    .multilineTextAlignment(.center)
                     .foregroundStyle(Theme.Color.textSecondary)
             }
+
             Button("See plans") { showPaywall = true }
                 .buttonStyle(.primary)
-                .padding(.top, Theme.Space.s)
         }
-        .frame(maxWidth: .infinity)
-        .padding(Theme.Space.xl)
-        .card()
+    }
+
+    private func lockedRow(_ title: String, _ body: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+                .font(.caption.weight(.bold))
+                .foregroundStyle(Theme.Color.leaf)
+            Text(body)
+                .font(.subheadline)
+                .foregroundStyle(Theme.Color.textPrimary)
+        }
     }
 
     private var capturePrompt: some View {
@@ -215,6 +257,24 @@ private struct SmartScanContent: View {
                     saveContext = SaveContext(card: card, jpeg: jpeg)
                 }
                 .buttonStyle(.secondary)
+            }
+        } else if app.freeGardenFull {
+            // The invested-user moment: they've built a garden of
+            // `freeGardenLimit` and are reaching to grow it. Offer the trial here,
+            // with the plant they just identified still in view above.
+            VStack(spacing: Theme.Space.m) {
+                Button("Unlock unlimited plants") {
+                    Analytics.log("garden_full_gate_hit")
+                    showPaywall = true
+                }
+                .buttonStyle(.primary)
+                Text("Your free garden is full at \(AppConfig.freeGardenLimit) plants. Go Premium to keep growing it, with care plans, reminders, and real trees planted as you go.")
+                    .font(.footnote)
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(Theme.Color.textSecondary)
+                Button("Not now") { vm.reset() }
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(Theme.Color.textSecondary)
             }
         } else {
             VStack(spacing: Theme.Space.m) {

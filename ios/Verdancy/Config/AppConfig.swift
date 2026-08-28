@@ -39,6 +39,14 @@ enum AppConfig {
     /// diagnose, buddies, or trees; those are the premium value (iOS-PRD §7/§8).
     static let freeDailyScanCount = 2
 
+    /// How many plants a free account can keep in its garden. Free users build a
+    /// small, real collection (identity + toxicity + a forming seedling) so there's
+    /// something to come back to and something to lose; the paywall then appears at
+    /// the moment they reach to grow past it (iOS-PRD §7/§8 retention model). Care
+    /// plans, reminders, diagnose, buddies, and trees stay Premium. Purely a client
+    /// gate — saving a plant costs no AI credits, so the server doesn't cap it.
+    static let freeGardenLimit = 3
+
     /// Trees funded by the first annual payment, mirrored from the backend's
     /// `ANNUAL_TREES` for client-side messaging and for recognizing the grant when
     /// it lands (the server is the only place trees are actually counted).

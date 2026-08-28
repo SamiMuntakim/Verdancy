@@ -46,6 +46,13 @@ final class AppModel {
     /// Entitlement is owned by RevenueCat; the server is the real authority.
     var isSubscribed: Bool { entitlement.isSubscribed }
 
+    /// A free garden is full once it holds `freeGardenLimit` plants — the moment to
+    /// offer the trial to someone who has now built (and would lose) a collection.
+    /// Subscribers are never capped.
+    var freeGardenFull: Bool {
+        !isSubscribed && garden.plants.count >= AppConfig.freeGardenLimit
+    }
+
     private var knewPlants = false
 
     init(auth: AuthService) {

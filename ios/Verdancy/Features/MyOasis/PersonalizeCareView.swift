@@ -33,7 +33,13 @@ struct PersonalizeCareView: View {
     private var content: some View {
         switch phase {
         case .form:
-            formView
+            // Free users can't generate a plan, so don't send them through a form
+            // that dead-ends. Show what the plan looks like, locked, and offer it.
+            if canGenerateForFree {
+                formView
+            } else {
+                carePlanTeaser
+            }
         case .generating:
             VStack(spacing: Theme.Space.m) {
                 ProgressView().tint(Theme.Color.leaf)
@@ -44,6 +50,65 @@ struct PersonalizeCareView: View {
             .background(Theme.Color.background)
         case let .result(plan):
             resultView(plan)
+        }
+    }
+
+    // MARK: - Free teaser
+
+    /// The care-plan gate as a value preview: a redacted plan card showing water,
+    /// light, and feeding rows, so a free user sees the shape of what they'd unlock.
+    private var carePlanTeaser: some View {
+        ScrollView {
+            VStack(spacing: Theme.Space.l) {
+                LockedPreviewCard(icon: "list.bullet.clipboard.fill",
+                                  header: "\(plant.displayName)'s care plan") {
+                    VStack(alignment: .leading, spacing: Theme.Space.l) {
+                        teaserRow(icon: "drop.fill", title: "Water",
+                                  value: "Every 9 days, less in winter")
+                        teaserRow(icon: "sun.max.fill", title: "Light",
+                                  value: "Bright, indirect — a few feet from a window")
+                        teaserRow(icon: "leaf.fill", title: "Feed",
+                                  value: "Monthly through spring and summer")
+                    }
+                }
+
+                VStack(spacing: Theme.Space.xs) {
+                    Text("Unlock \(plant.displayName)'s care plan")
+                        .font(.headline)
+                        .multilineTextAlignment(.center)
+                    Text("Tailored to your pot, light, and home, with watering that errs on the safe side. Your plant keeps its ID and buddy on the free plan; the care plan is Premium.")
+                        .font(.subheadline)
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(Theme.Color.textSecondary)
+                }
+
+                Button("Unlock care plan") {
+                    Analytics.log("care_plan_gate_hit", ["gate": "teaser"])
+                    showPaywall = true
+                }
+                .buttonStyle(.primary)
+
+                Button("Skip for now") { onFinished() }
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(Theme.Color.textSecondary)
+            }
+            .padding(Theme.Space.l)
+        }
+        .background(Theme.Color.background)
+    }
+
+    private func teaserRow(icon: String, title: String, value: String) -> some View {
+        HStack(spacing: Theme.Space.m) {
+            Image(systemName: icon)
+                .font(.subheadline)
+                .foregroundStyle(Theme.Color.leaf)
+                .frame(width: 28, height: 28)
+                .background(Theme.Color.leaf.opacity(0.12), in: Circle())
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title).font(.subheadline.weight(.semibold))
+                Text(value).font(.caption).foregroundStyle(Theme.Color.textSecondary)
+            }
+            Spacer(minLength: 0)
         }
     }
 
@@ -101,10 +166,7 @@ struct PersonalizeCareView: View {
             Button {
                 Task { await generate() }
             } label: {
-                Label(
-                    canGenerateForFree ? "Create care plan" : "Create care plan",
-                    systemImage: canGenerateForFree ? "sparkles" : "lock.fill"
-                )
+                Label("Create care plan", systemImage: "sparkles")
             }
             .buttonStyle(.primary)
 
