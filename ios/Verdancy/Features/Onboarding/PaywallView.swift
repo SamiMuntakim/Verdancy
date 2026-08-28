@@ -44,6 +44,7 @@ struct PaywallView: View {
                         Text(error).font(.footnote).foregroundStyle(Theme.Color.danger)
                     }
                     footerLinks
+                    legalLinks
                 }
                 .padding(Theme.Space.l)
             }
@@ -145,6 +146,21 @@ struct PaywallView: View {
             .font(.caption)
             .foregroundStyle(Theme.Color.textSecondary)
         }
+    }
+
+    /// Apple Guideline 3.1.2 requires functional Terms of Use and Privacy Policy
+    /// links on the subscription purchase screen itself — reviewers reject without
+    /// them. Same destinations as Settings.
+    private var legalLinks: some View {
+        HStack(spacing: Theme.Space.l) {
+            Link("Terms of Service", destination: AppConfig.termsURL)
+            Rectangle()
+                .fill(Theme.Color.separator)
+                .frame(width: 1, height: 12)
+            Link("Privacy Policy", destination: AppConfig.privacyURL)
+        }
+        .font(.caption)
+        .foregroundStyle(Theme.Color.textSecondary)
     }
 
     private func subscribe() async {
