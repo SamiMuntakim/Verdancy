@@ -24,7 +24,7 @@ struct PlantDetailView: View {
 
                 Group {
                     careContent
-                    factsSection
+                    if hasFacts { factsSection }
                     healthSection
 
                 NavigationLink {
@@ -159,9 +159,11 @@ struct PlantDetailView: View {
                         Text(current.displayName)
                             .font(.title.weight(.bold))
                             .foregroundStyle(.white)
-                        Text(current.commonName)
-                            .font(.subheadline)
-                            .foregroundStyle(.white.opacity(0.85))
+                        if let subtitle = current.displaySubtitle {
+                            Text(subtitle)
+                                .font(.subheadline)
+                                .foregroundStyle(.white.opacity(0.85))
+                        }
                     }
                     Spacer()
                     BudView(plant: current, isSubscribed: app.isSubscribed, size: 56)
@@ -182,8 +184,12 @@ struct PlantDetailView: View {
     @ViewBuilder
     private var careContent: some View {
         if let plan = current.carePlan {
-            CarePlanView(plan: plan)
-            scheduleSection
+            // Interactive mode: each card carries its own due status + Done, so
+            // there's no separate "Log care" list restating the cadences.
+            CarePlanView(plan: plan, plant: current) { type in
+                await app.garden.logCare(plant: current, type: type)
+                Haptics.success()
+            }
             Button("Update care plan") { showPersonalize = true }
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(Theme.Color.leaf)
@@ -216,45 +222,14 @@ struct PlantDetailView: View {
         .card()
     }
 
-    /// Actionable mark-done rows for each scheduled task (cadence + "Done").
-    @ViewBuilder
-    private var scheduleSection: some View {
-        let scheduled = CareType.allCases.filter { current.care.task(for: $0).cadenceDays != nil }
-        if !scheduled.isEmpty {
-            VStack(alignment: .leading, spacing: Theme.Space.m) {
-                Text("Log care").font(.headline)
-                ForEach(scheduled, id: \.self) { type in
-                    let cadence = current.care.task(for: type).cadenceDays ?? 0
-                    HStack(spacing: Theme.Space.m) {
-                        Image(systemName: type.systemImage)
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(Theme.Color.leaf)
-                            .frame(width: 28, height: 28)
-                            .background(Theme.Color.leaf.opacity(0.12), in: Circle())
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(type.title).font(.subheadline.weight(.medium))
-                            Text("Every \(cadence) days")
-                                .font(.caption).foregroundStyle(Theme.Color.textSecondary)
-                        }
-                        Spacer()
-                        Button("Done") {
-                            Task {
-                                await app.garden.logCare(plant: current, type: type)
-                                Haptics.success()
-                            }
-                        }
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(Theme.Color.leaf)
-                        .padding(.horizontal, Theme.Space.l)
-                        .padding(.vertical, Theme.Space.s)
-                        .background(Theme.Color.leaf.opacity(0.12), in: Capsule())
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(Theme.Space.l)
-            .card()
-        }
+    /// Only rendered when it has at least one row — with a care plan present and a
+    /// pet-safe plant there's nothing generic left to say, and an empty card is
+    /// worse than none.
+    private var hasFacts: Bool {
+        current.toxicityLevel?.isConcerning == true
+            || (current.carePlan == nil
+                && (current.lightingNeeds?.isEmpty == false
+                    || current.fertilizerInfo?.isEmpty == false))
     }
 
     private var factsSection: some View {
@@ -270,11 +245,16 @@ struct PlantDetailView: View {
                         in: RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous)
                     )
             }
-            if let light = current.lightingNeeds, !light.isEmpty {
-                factRow(icon: "sun.max.fill", label: "Light", value: light)
-            }
-            if let fert = current.fertilizerInfo, !fert.isEmpty {
-                factRow(icon: "leaf.fill", label: "Fertilizer", value: fert)
+            // The generic identify-time light/fertilizer notes only until a real
+            // care plan exists — the plan's Light and Nutrients cards supersede
+            // them, and repeating both reads like two apps disagreeing.
+            if current.carePlan == nil {
+                if let light = current.lightingNeeds, !light.isEmpty {
+                    factRow(icon: "sun.max.fill", label: "Light", value: light)
+                }
+                if let fert = current.fertilizerInfo, !fert.isEmpty {
+                    factRow(icon: "leaf.fill", label: "Fertilizer", value: fert)
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
