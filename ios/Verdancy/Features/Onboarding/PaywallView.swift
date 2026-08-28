@@ -1,8 +1,10 @@
 import SwiftUI
 
 /// Hard paywall (iOS-PRD §7/§8). Leads with the dual value — keep plants alive +
-/// plant 10 real trees — annual as the hero, 7-day trial. RevenueCat offerings +
-/// the bloom reveal are wired in Phase 4; this is the structured shell.
+/// plant 10 real trees — annual as the hero, 7-day trial. The centerpiece is the
+/// trial timeline: saying out loud when the charge lands (and that we remind you
+/// first) is what defuses trial anxiety, the #1 subscribe objection. Prices come
+/// from StoreKit via RevenueCat, never hardcoded (Guideline 3.1.2).
 struct PaywallView: View {
     @Environment(AppModel.self) private var app
     @Environment(\.dismiss) private var dismiss
@@ -10,7 +12,6 @@ struct PaywallView: View {
     @State private var isWorking = false
     @State private var error: String?
 
-    // Prices come from StoreKit via RevenueCat, never hardcoded (Guideline 3.1.2).
     private var annualPrice: EntitlementService.PlanPrice? { app.entitlement.price(for: .annual) }
     private var monthlyPrice: EntitlementService.PlanPrice? { app.entitlement.price(for: .monthly) }
     private var priceUnavailable: Bool { (plan == .annual ? annualPrice : monthlyPrice) == nil }
@@ -24,84 +25,25 @@ struct PaywallView: View {
     }
 
     private func annualSubtitle(_ price: EntitlementService.PlanPrice?) -> String {
-        if let perMonth = price?.perMonth {
-            return "7-day free trial · just \(perMonth)/mo, billed yearly"
+        if let perMonth = price?.perMonth, let total = price?.total {
+            return "Then \(total)/yr — about \(perMonth)/mo · funds 10 trees"
         }
-        return "7-day free trial · billed yearly"
+        return "7-day free trial · billed yearly · funds 10 trees"
     }
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: Theme.Space.l) {
-                    VStack(spacing: Theme.Space.m) {
-                        Image(systemName: "leaf.fill")
-                            .font(.system(size: 34, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .frame(width: 72, height: 72)
-                            .background(
-                                Theme.leafGradient,
-                                in: RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            )
-                        Text("Keep your plants alive,\nand plant 10 real trees.")
-                            .font(.title2.weight(.bold)).multilineTextAlignment(.center)
-                        Text("Free gives you \(AppConfig.freeDailyScanCount) plant IDs a day. Premium unlocks the whole thing.")
-                            .font(.subheadline)
-                            .multilineTextAlignment(.center)
-                            .foregroundStyle(Theme.Color.textSecondary)
-                            .padding(.horizontal, Theme.Space.l)
-                    }
-                    .padding(.top, Theme.Space.l)
-
-                    PlanComparison()
-
-                    SocialProofCard()
-
-                    VStack(spacing: Theme.Space.m) {
-                        if planAvailable(.annual) {
-                            PlanRow(title: "Annual", price: annualPrice?.total ?? "-",
-                                    subtitle: annualSubtitle(annualPrice),
-                                    badge: annualPrice?.savingsPercent.map { "SAVE \($0)%" },
-                                    selected: plan == .annual) { plan = .annual }
-                        }
-                        if planAvailable(.monthly) {
-                            PlanRow(title: "Monthly", price: monthlyPrice?.total ?? "-",
-                                    subtitle: "Flexible, month to month",
-                                    badge: nil,
-                                    selected: plan == .monthly) { plan = .monthly }
-                        }
-                    }
-                    // Never leave the user selected on a plan that isn't purchasable.
-                    .onChange(of: app.entitlement.offeringLoaded) { _, _ in
-                        if !planAvailable(plan) {
-                            plan = planAvailable(.annual) ? .annual : .monthly
-                        }
-                    }
-
-                    Button {
-                        Task { await subscribe() }
-                    } label: {
-                        Text(priceUnavailable ? "Loading plans…"
-                             : isWorking ? "Starting…"
-                             : plan == .annual ? "Start my 7-day free trial" : "Subscribe monthly")
-                    }
-                    .buttonStyle(.primary)
-                    .disabled(isWorking || priceUnavailable)
-
+                    hero
+                    TrialTimeline(plan: plan)
+                    planRows
+                    subscribeButton
+                    reassurance
                     if let error {
                         Text(error).font(.footnote).foregroundStyle(Theme.Color.danger)
                     }
-                    Button("Restore Purchases") {
-                        Task { await app.entitlement.restore(); if app.isSubscribed { dismiss() } }
-                    }
-                    .font(.footnote)
-                    .foregroundStyle(Theme.Color.textSecondary)
-                    // Each plan promises only what it actually funds.
-                    Text(plan == .annual
-                         ? "No charge until your free trial ends. Cancel in two taps. Your 10 trees are funded when your first payment goes through."
-                         : "Cancel in two taps. A real tree is funded every month you subscribe.")
-                        .font(.caption2).multilineTextAlignment(.center)
-                        .foregroundStyle(Theme.Color.textSecondary)
+                    footerLinks
                 }
                 .padding(Theme.Space.l)
             }
@@ -110,6 +52,98 @@ struct PaywallView: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }
             }
             .onAppear { Analytics.log("paywall_viewed") }
+        }
+    }
+
+    private var hero: some View {
+        VStack(spacing: Theme.Space.m) {
+            ZStack {
+                Circle()
+                    .fill(Theme.Color.leaf.opacity(0.14))
+                    .frame(width: 96, height: 96)
+                Image(BudSprites.generic)
+                    .resizable()
+                    .interpolation(.none)
+                    .scaledToFit()
+                    .frame(width: 72, height: 72)
+            }
+            Text("Keep every plant alive.\nPlant 10 real trees.")
+                .font(.title2.weight(.bold))
+                .multilineTextAlignment(.center)
+        }
+        .padding(.top, Theme.Space.s)
+    }
+
+    private var planRows: some View {
+        VStack(spacing: Theme.Space.m) {
+            if planAvailable(.annual) {
+                PlanRow(title: "Annual · 7 days free",
+                        price: annualPrice?.total ?? "-",
+                        subtitle: annualSubtitle(annualPrice),
+                        badge: annualPrice?.savingsPercent.map { "BEST VALUE · SAVE \($0)%" },
+                        selected: plan == .annual) { plan = .annual }
+            }
+            if planAvailable(.monthly) {
+                PlanRow(title: "Monthly",
+                        price: monthlyPrice?.total ?? "-",
+                        subtitle: "Flexible · funds 1 tree every month",
+                        badge: nil,
+                        selected: plan == .monthly) { plan = .monthly }
+            }
+        }
+        // Never leave the user selected on a plan that isn't purchasable.
+        .onChange(of: app.entitlement.offeringLoaded) { _, _ in
+            if !planAvailable(plan) {
+                plan = planAvailable(.annual) ? .annual : .monthly
+            }
+        }
+    }
+
+    private var subscribeButton: some View {
+        Button {
+            Task { await subscribe() }
+        } label: {
+            Text(priceUnavailable ? "Loading plans…"
+                 : isWorking ? "Starting…"
+                 : plan == .annual ? "Start my free week" : "Subscribe monthly")
+        }
+        .buttonStyle(.primary)
+        .disabled(isWorking || priceUnavailable)
+    }
+
+    /// The anxiety-killer, directly under the CTA where the thumb hesitates.
+    private var reassurance: some View {
+        HStack(spacing: Theme.Space.xs) {
+            Image(systemName: "checkmark")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(Theme.Color.leaf)
+            Text(plan == .annual
+                 ? "No charge until Day 7 · Cancel in two taps"
+                 : "Billed today · Cancel anytime in two taps")
+                .font(.footnote.weight(.medium))
+                .foregroundStyle(Theme.Color.textSecondary)
+        }
+    }
+
+    private var footerLinks: some View {
+        HStack(spacing: Theme.Space.l) {
+            // Honest social proof (iOS-PRD §10): a public, verifiable tree counter.
+            Link(destination: AppConfig.treeCounterURL) {
+                HStack(spacing: Theme.Space.xs) {
+                    Text("See the live tree counter")
+                    Image(systemName: "arrow.up.right")
+                }
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(Theme.Color.leaf)
+            }
+            Rectangle()
+                .fill(Theme.Color.separator)
+                .frame(width: 1, height: 12)
+            Button("Restore Purchases") {
+                Task { await app.entitlement.restore(); if app.isSubscribed { dismiss() } }
+            }
+            .font(.caption)
+            .foregroundStyle(Theme.Color.textSecondary)
         }
     }
 
@@ -129,151 +163,87 @@ struct PaywallView: View {
     }
 }
 
-/// Honest social proof (iOS-PRD §8/§10): named partner + a public, verifiable tree
-/// counter. The App Store rating row stays off until real reviews exist.
-struct SocialProofCard: View {
-    var body: some View {
-        VStack(alignment: .leading, spacing: Theme.Space.m) {
-            if AppConfig.showPaywallRating {
-                HStack(spacing: Theme.Space.s) {
-                    ForEach(0..<5, id: \.self) { _ in
-                        Image(systemName: "star.fill")
-                            .font(.caption)
-                            .foregroundStyle(Theme.Color.warning)
-                    }
-                    Text("Loved by plant parents")
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(Theme.Color.textSecondary)
-                }
-            }
-            HStack(spacing: Theme.Space.m) {
-                Image(systemName: "checkmark.seal.fill")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(Theme.Color.leaf)
-                    .frame(width: 28, height: 28)
-                    .background(Theme.Color.leaf.opacity(0.12), in: Circle())
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Real trees, publicly counted")
-                        .font(.subheadline.weight(.semibold))
-                    Text("Funded through \(AppConfig.plantingPartner). Each tree comes with its own certificate.")
-                        .font(.caption)
-                        .foregroundStyle(Theme.Color.textSecondary)
-                }
-            }
-            Link(destination: AppConfig.treeCounterURL) {
-                HStack(spacing: Theme.Space.xs) {
-                    Text("See the live tree counter")
-                    Image(systemName: "arrow.up.right")
-                }
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(Theme.Color.leaf)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(Theme.Space.l)
-        .card()
-    }
-}
+/// What actually happens, and when — including the moment money moves and the
+/// moment trees are planted (both on Day 7; trees follow the payment, never the
+/// signup, mirroring the webhook's `isPaidPeriod` rule). The monthly variant has
+/// no trial, so its steps describe the immediate charge and the monthly tree.
+struct TrialTimeline: View {
+    let plan: EntitlementService.Plan
 
-/// The conversion centerpiece (iOS-PRD §7/§8): a stark Free-vs-Premium table. Free
-/// is honestly bare — 2 identifications a day and nothing else — so the premium
-/// column, which carries every real feature *including the real trees*, does the
-/// selling. Numbers come from `AppConfig` so client copy tracks the server gate.
-struct PlanComparison: View {
-    /// A capability row. `free` is the free-tier value (nil → not included, shown as
-    /// a muted dash); premium is always included (`premiumValue` nil → a check).
-    private struct Row {
+    private struct Step {
         let icon: String
-        let label: String
-        let free: String?
-        let premiumValue: String?
+        let tint: Color
+        let title: String
+        let detail: String
     }
 
-    private var rows: [Row] {
-        [
-            Row(icon: "camera.viewfinder", label: "Plant identification",
-                free: "\(AppConfig.freeDailyScanCount)/day", premiumValue: "Unlimited"),
-            Row(icon: "list.bullet.clipboard.fill", label: "Personalized care plans",
-                free: nil, premiumValue: nil),
-            Row(icon: "bell.badge.fill", label: "Watering & care reminders",
-                free: nil, premiumValue: nil),
-            Row(icon: "stethoscope", label: "Diagnose sick plants",
-                free: nil, premiumValue: nil),
-            Row(icon: "sparkles", label: "Blooming plant buddies",
-                free: nil, premiumValue: nil),
-            Row(icon: "flame.fill", label: "Care streaks & stats",
-                free: nil, premiumValue: nil),
-            Row(icon: "tree.fill", label: "Real trees funded",
-                free: nil, premiumValue: "10 / yr · 1 / mo"),
-        ]
+    private var steps: [Step] {
+        switch plan {
+        case .annual:
+            return [
+                Step(icon: "lock.open.fill", tint: Theme.Color.leaf,
+                     title: "Today — everything unlocks",
+                     detail: "Unlimited IDs, tailored care plans, plant diagnosis — and your buddy blooms."),
+                Step(icon: "bell.badge.fill", tint: Theme.Color.warning,
+                     title: "Day 5 — we remind you",
+                     detail: "A heads-up before your trial ends. Cancel in two taps, keep the free tier."),
+                Step(icon: "tree.fill", tint: Theme.Color.leafDeep,
+                     title: "Day 7 — your 10 trees go in the ground",
+                     detail: "Your first payment funds 10 real trees through \(AppConfig.plantingPartner), certificates and all."),
+            ]
+        case .monthly:
+            return [
+                Step(icon: "lock.open.fill", tint: Theme.Color.leaf,
+                     title: "Today — everything unlocks",
+                     detail: "Unlimited IDs, tailored care plans, plant diagnosis — and your buddy blooms."),
+                Step(icon: "tree.fill", tint: Theme.Color.leafDeep,
+                     title: "Every month — a real tree is planted",
+                     detail: "Each payment funds one tree through \(AppConfig.plantingPartner), certificate included."),
+                Step(icon: "hand.wave.fill", tint: Theme.Color.terracotta,
+                     title: "Anytime — cancel in two taps",
+                     detail: "Your forest and its certificates stay yours."),
+            ]
+        }
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            // Column headers.
-            HStack(spacing: Theme.Space.m) {
-                Text("Everything you get")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(Theme.Color.textSecondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                Text("Free")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(Theme.Color.textSecondary)
-                    .frame(width: 62)
-                Text("Premium")
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(Theme.Color.leaf)
-                    .frame(width: 72)
-            }
-            .padding(.bottom, Theme.Space.s)
-
-            ForEach(rows.indices, id: \.self) { i in
-                if i > 0 { Divider().overlay(Theme.Color.separator) }
-                rowView(rows[i])
+            let steps = steps
+            ForEach(steps.indices, id: \.self) { i in
+                stepView(steps[i], isLast: i == steps.count - 1)
             }
         }
         .padding(Theme.Space.l)
         .card()
+        .animation(.easeOut(duration: 0.2), value: plan == .annual)
     }
 
-    private func rowView(_ row: Row) -> some View {
-        HStack(spacing: Theme.Space.m) {
-            HStack(spacing: Theme.Space.s) {
-                Image(systemName: row.icon)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(Theme.Color.leaf)
-                    .frame(width: 24, height: 24)
-                    .background(Theme.Color.leaf.opacity(0.12), in: Circle())
-                Text(row.label).font(.subheadline.weight(.medium))
+    private func stepView(_ step: Step, isLast: Bool) -> some View {
+        HStack(alignment: .top, spacing: Theme.Space.m) {
+            VStack(spacing: 3) {
+                Image(systemName: step.icon)
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(step.tint)
+                    .frame(width: 30, height: 30)
+                    .background(step.tint.opacity(0.14), in: Circle())
+                if !isLast {
+                    Rectangle()
+                        .fill(Theme.Color.separator)
+                        .frame(width: 2)
+                        .frame(maxHeight: .infinity)
+                }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            cell(freeText: row.free, included: row.free != nil, emphasized: false)
-                .frame(width: 62)
-            cell(freeText: row.premiumValue, included: true, emphasized: true)
-                .frame(width: 72)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(step.title).font(.subheadline.weight(.bold))
+                Text(step.detail)
+                    .font(.footnote)
+                    .foregroundStyle(Theme.Color.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.bottom, isLast ? 0 : Theme.Space.m)
+            Spacer(minLength: 0)
         }
-        .padding(.vertical, Theme.Space.m)
-    }
-
-    /// A value cell: shows the text if present, a check when included without a
-    /// value, or a muted dash when the tier doesn't include it.
-    @ViewBuilder
-    private func cell(freeText: String?, included: Bool, emphasized: Bool) -> some View {
-        if let freeText {
-            Text(freeText)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(emphasized ? Theme.Color.leaf : Theme.Color.textPrimary)
-                .multilineTextAlignment(.center)
-        } else if included {
-            Image(systemName: "checkmark.circle.fill")
-                .font(.subheadline)
-                .foregroundStyle(emphasized ? Theme.Color.leaf : Theme.Color.textPrimary)
-        } else {
-            Image(systemName: "minus")
-                .font(.caption.weight(.bold))
-                .foregroundStyle(Theme.Color.separator)
-        }
+        .fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -289,17 +259,7 @@ struct PlanRow: View {
         Button(action: tap) {
             HStack(spacing: Theme.Space.m) {
                 VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: Theme.Space.s) {
-                        Text(title).font(.headline).foregroundStyle(Theme.Color.textPrimary)
-                        if let badge {
-                            Text(badge)
-                                .font(.caption2.weight(.bold))
-                                .padding(.horizontal, 7)
-                                .padding(.vertical, 3)
-                                .background(Theme.Color.terracotta.opacity(0.15), in: Capsule())
-                                .foregroundStyle(Theme.Color.terracotta)
-                        }
-                    }
+                    Text(title).font(.headline).foregroundStyle(Theme.Color.textPrimary)
                     if !subtitle.isEmpty {
                         Text(subtitle).font(.caption).foregroundStyle(Theme.Color.textSecondary)
                     }
@@ -320,6 +280,17 @@ struct PlanRow: View {
                     .strokeBorder(selected ? Theme.Color.leaf : Theme.Color.separator,
                                   lineWidth: selected ? 2 : 1)
             )
+            .overlay(alignment: .topLeading) {
+                if let badge {
+                    Text(badge)
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(Theme.Color.terracotta, in: Capsule())
+                        .offset(x: Theme.Space.m, y: -9)
+                }
+            }
         }
         .buttonStyle(.plain)
         .animation(.easeOut(duration: 0.15), value: selected)
