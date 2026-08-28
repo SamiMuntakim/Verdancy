@@ -46,13 +46,18 @@ struct BloomCelebrationView: View {
                     Text(bloomed ? "Your buddy bloomed! 🌸" : "Something's growing…")
                         .font(.title2.weight(.bold))
                         .multilineTextAlignment(.center)
-                    Text("Welcome to Verdancy. Your plants and your first 10 real trees start now.")
+                    Text("Welcome to Verdancy Premium. Everything is unlocked — starting with this one.")
                         .font(.subheadline)
                         .multilineTextAlignment(.center)
                         .foregroundStyle(Theme.Color.textSecondary)
                         .padding(.horizontal, Theme.Space.xl)
                 }
                 .opacity(bloomed ? 1 : 0)
+
+                TreesReservedCard(plan: app.lastPurchasedPlan ?? .annual)
+                    .padding(.horizontal, Theme.Space.xl)
+                    .padding(.top, Theme.Space.m)
+                    .opacity(bloomed ? 1 : 0)
 
                 Spacer()
                 VStack(spacing: Theme.Space.m) {
@@ -97,6 +102,41 @@ struct BloomCelebrationView: View {
     private var bundledBloom: some View {
         Image(plant.map { BudSprites.bloomAsset(for: $0.species) } ?? BudSprites.generic)
             .resizable().interpolation(.none).scaledToFit()
+    }
+}
+
+/// The Day-0 tree promise, stated honestly: trees follow the payment, never the
+/// signup (the webhook's `isPaidPeriod` rule) — so an annual trial's 10 trees are
+/// "reserved" until the Day-7 charge, and monthly's tree rides each real payment.
+/// The Day-7 payoff itself is `TreesPlantedCelebrationView`.
+private struct TreesReservedCard: View {
+    let plan: EntitlementService.Plan
+
+    var body: some View {
+        VStack(spacing: Theme.Space.m) {
+            HStack(spacing: 7) {
+                ForEach(0..<(plan == .annual ? AppConfig.annualTreeGrant : 1), id: \.self) { _ in
+                    Image(systemName: "tree.fill")
+                        .font(.footnote)
+                        .foregroundStyle(Theme.Color.leaf)
+                }
+            }
+            VStack(spacing: 3) {
+                Text(plan == .annual
+                     ? "10 trees reserved for your forest"
+                     : "Your first tree is on its way")
+                    .font(.subheadline.weight(.bold))
+                Text(plan == .annual
+                     ? "They go in the ground with your first payment on Day 7 — each with its own certificate."
+                     : "One real tree is funded every month you're subscribed — certificates included.")
+                    .font(.caption)
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(Theme.Color.textSecondary)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(Theme.Space.l)
+        .card()
     }
 }
 

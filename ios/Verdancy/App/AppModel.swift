@@ -21,6 +21,9 @@ final class AppModel {
     var firstRunActive = false
     /// Fires the one-time bloom reveal after a successful subscribe (iOS-PRD §8.4).
     var pendingBloom = false
+    /// Which plan the last successful purchase was — lets the bloom's tree card
+    /// speak honestly (annual: 10 trees reserved for Day 7; monthly: 1/month now).
+    var lastPurchasedPlan: EntitlementService.Plan?
     /// Set when a tree is earned (milestone or care streak) → transient banner.
     var treeCelebration: TreeCelebration?
     /// Appearance override (iOS-PRD §3.4), persisted across launches.
@@ -248,6 +251,7 @@ final class AppModel {
         let active = try await entitlement.purchase(plan)
         if active {
             Analytics.log("trial_started", ["plan": plan == .annual ? "annual" : "monthly"])
+            lastPurchasedPlan = plan
             // Now that they're a subscriber, generate the real bud(s) so the bloom
             // opens into their plant's own buddy (gated until here to save credits).
             garden.ensureBuddiesForAll()
@@ -303,6 +307,7 @@ final class AppModel {
         knewPlants = false
         lastCheckinDay = nil
         treeCelebration = nil
+        lastPurchasedPlan = nil
         referralCode = nil
         phase = .signedOut
     }

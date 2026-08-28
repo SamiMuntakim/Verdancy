@@ -39,6 +39,11 @@ enum AppConfig {
     /// diagnose, buddies, or trees; those are the premium value (iOS-PRD §7/§8).
     static let freeDailyScanCount = 2
 
+    /// Trees funded by the first annual payment, mirrored from the backend's
+    /// `ANNUAL_TREES` for client-side messaging and for recognizing the grant when
+    /// it lands (the server is the only place trees are actually counted).
+    static let annualTreeGrant = 10
+
     /// Named planting partner (iOS-PRD §10: provably real trees, never vague).
     /// Trees are funded through Tree-Nation, which issues a certificate per tree.
     /// This must name the partner we actually plant with — see `docs/tree-nation-api.md`.
