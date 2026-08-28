@@ -26,6 +26,10 @@ final class AppModel {
     var lastPurchasedPlan: EntitlementService.Plan?
     /// Set when a tree is earned (milestone or care streak) → transient banner.
     var treeCelebration: TreeCelebration?
+    /// Fires the full-screen "you just planted 10 real trees" moment when the
+    /// annual subscription's grant lands (the Day-7 converting payment). Set by
+    /// `handleTreesChanged`, presented from RootView, celebrated exactly once.
+    var pendingTreesPlanted: TreesPlantedCelebration?
     /// Appearance override (iOS-PRD §3.4), persisted across launches.
     var appearance: Appearance =
         Appearance(rawValue: UserDefaults.standard.string(forKey: appearanceKey) ?? "") ?? .system
@@ -57,6 +61,10 @@ final class AppModel {
         // it (iOS-PRD §9): free users keep the bundled dormant seedling until they
         // subscribe, at which point the bloom has a real bud to open into.
         garden.isSubscribed = { [weak self] in self?.isSubscribed ?? false }
+
+        garden.onTreesChanged = { [weak self] old, new in
+            self?.handleTreesChanged(old: old, new: new)
+        }
 
         garden.onChanged = { [weak self] plants in
             guard let self else { return }
@@ -282,6 +290,46 @@ final class AppModel {
         }
     }
 
+    // MARK: - Subscription tree grants (the Day-7 moment)
+
+    /// Milestone ids of subscription grants (`sub_` prefix, written by the
+    /// RevenueCat webhook) this device has already seen — so a grant is celebrated
+    /// exactly once, and never re-celebrated on later refreshes.
+    private static let seenSubGrantsKey = "verdancy.subGrants.seen"
+
+    /// Celebrate a subscription tree grant the moment it shows up in fresh server
+    /// tree status. The annual grant lands with the Day-7 converting payment (the
+    /// webhook funds trees only when money moves), so the client's job is purely to
+    /// NOTICE it: a new `sub_` milestone plus a jump of the full annual grant means
+    /// the 10 trees were just planted → the full-screen celebration. A smaller jump
+    /// (monthly's tree) gets the transient banner. The first-ever status for an
+    /// account only baselines, so a reinstall or second device never replays
+    /// history as if it just happened.
+    private func handleTreesChanged(old: TreeStatus, new: TreeStatus) {
+        let subGrants = Set(new.milestones.filter { $0.hasPrefix("sub_") })
+        let defaults = UserDefaults.standard
+        guard let seenList = defaults.stringArray(forKey: Self.seenSubGrantsKey) else {
+            defaults.set(Array(subGrants), forKey: Self.seenSubGrantsKey)
+            return
+        }
+        let unseen = subGrants.subtracting(seenList)
+        guard !unseen.isEmpty else { return }
+        defaults.set(Array(subGrants.union(seenList)), forKey: Self.seenSubGrantsKey)
+
+        let jump = new.treesPledged - old.treesPledged
+        guard jump > 0 else { return }
+        if jump >= AppConfig.annualTreeGrant {
+            pendingTreesPlanted = TreesPlantedCelebration(count: jump, total: new.treesPledged)
+            Analytics.log("annual_trees_celebrated")
+            Haptics.celebrate()
+        } else if !pendingBloom {
+            // Monthly's single tree: the banner is the right size. Skipped while the
+            // bloom reveal is up — they're already mid-celebration.
+            treeCelebration = TreeCelebration(total: new.treesPledged, streakDays: nil)
+            Haptics.celebrate()
+        }
+    }
+
     func setAppearance(_ value: Appearance) {
         appearance = value
         UserDefaults.standard.set(value.rawValue, forKey: AppModel.appearanceKey)
@@ -308,6 +356,8 @@ final class AppModel {
         lastCheckinDay = nil
         treeCelebration = nil
         lastPurchasedPlan = nil
+        pendingTreesPlanted = nil
+        UserDefaults.standard.removeObject(forKey: Self.seenSubGrantsKey)
         referralCode = nil
         phase = .signedOut
     }
@@ -321,4 +371,14 @@ struct TreeCelebration: Equatable, Identifiable {
     let streakDays: Int?
 
     var id: String { "\(total)-\(streakDays ?? -1)" }
+}
+
+/// A landed subscription grant — the annual plan's trees, planted by the Day-7
+/// converting payment (iOS-PRD §10). `count` is how many this grant planted,
+/// `total` the whole forest after it.
+struct TreesPlantedCelebration: Equatable, Identifiable {
+    let count: Int
+    let total: Int
+
+    var id: String { "\(count)-\(total)" }
 }

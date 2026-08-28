@@ -32,6 +32,14 @@ struct RootView: View {
                 requestReview()
             }
         }
+        .fullScreenCover(item: $app.pendingTreesPlanted) { celebration in
+            // The Day-7 moment: the annual grant's trees just went in the ground.
+            TreesPlantedCelebrationView(celebration: celebration) {
+                app.pendingTreesPlanted = nil
+                // Money moved and trees landed — another peak, system-throttled.
+                requestReview()
+            }
+        }
         .overlay(alignment: .top) {
             if let celebration = app.treeCelebration {
                 TreeEarnedBanner(celebration: celebration)

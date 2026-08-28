@@ -29,6 +29,12 @@ final class GardenStore {
     /// can update the streak + reschedule reminders. Does NOT fire on snapshot hydrate.
     var onChanged: (([Plant]) -> Void)?
 
+    /// Invoked whenever fresh tree status arrives from the server (refresh or an
+    /// explicit grant re-read), with the previous status for comparison — how the
+    /// app notices a subscription grant landing (e.g. the Day-7 annual 10-tree
+    /// grant) without ever counting trees client-side. Not fired on snapshot hydrate.
+    var onTreesChanged: ((_ old: TreeStatus, _ new: TreeStatus) -> Void)?
+
     /// Whether the caller is a subscriber. Buddy image generation (`POST /buddy`)
     /// costs Gemini credits, so it only runs for subscribers (iOS-PRD §8/§9) — free
     /// users keep the bundled dormant seedling. Set by `AppModel`.
@@ -53,9 +59,11 @@ final class GardenStore {
             async let treesCall = api.trees()
             let (fetchedPlants, fetchedTrees) = try await (plantsCall, treesCall)
             plants = fetchedPlants
+            let previousTrees = trees
             trees = fetchedTrees
             didLoadOnce = true
             SnapshotStore.save(GardenSnapshot(plants: plants, trees: trees))
+            onTreesChanged?(previousTrees, fetchedTrees)
         } catch {
             // In mock/offline mode, fall back to sample data so the UI is runnable.
             if AppConfig.useMockAuth, plants.isEmpty {
@@ -79,8 +87,10 @@ final class GardenStore {
     /// Replace the tree status after a grant (the streak check-in) and persist it,
     /// so the forest survives a cold start offline.
     func applyTrees(_ status: TreeStatus) {
+        let previous = trees
         trees = status
         SnapshotStore.save(GardenSnapshot(plants: plants, trees: trees))
+        onTreesChanged?(previous, status)
     }
 
     // MARK: Snooze ("not today")
