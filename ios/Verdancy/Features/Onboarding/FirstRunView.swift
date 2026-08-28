@@ -116,8 +116,8 @@ private struct FirstScanView: View {
         case let .working(image):
             FirstScanScanningView(image: image)
         case let .identified(card, jpeg):
-            VStack(spacing: Theme.Space.m) {
-                CareCardView(card: card)
+            VStack(spacing: Theme.Space.l) {
+                CareCardView(card: card, jpeg: jpeg)
                 actions(card: card, jpeg: jpeg)
             }
         case .paywall, .rateLimited:

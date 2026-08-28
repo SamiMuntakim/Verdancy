@@ -38,6 +38,26 @@ private struct SmartScanContent: View {
             }
             .background(Theme.Color.background)
             .navigationTitle("Smart Scan")
+            #if DEBUG
+            // Screenshot automation: `-scanDemo [safe|toxic|unknown]` (mock mode)
+            // jumps straight to an identified result with a generated foliage photo,
+            // so the hero card can be captured without a live camera. Inert in
+            // release and outside mock mode.
+            .task {
+                guard AppConfig.useMockAuth else { return }
+                let args = CommandLine.arguments
+                guard let i = args.firstIndex(of: "-scanDemo") else { return }
+                let variant = i + 1 < args.count ? args[i + 1] : "safe"
+                let card: CareCard = variant == "toxic" ? .sample
+                    : variant == "unknown" ? .sampleUnknown : .sampleSafe
+                // Show the clean "Save plant" CTA a first-time user sees, not the
+                // full-garden paywall the 3 sample plants would otherwise trigger.
+                app.entitlement.isSubscribed = true
+                if let jpeg = DemoImage.foliageJPEG() {
+                    vm.phase = .identified(card, jpeg: jpeg)
+                }
+            }
+            #endif
             .sheet(isPresented: $showCamera) {
                 CameraPicker { image in
                     diagnosisSavedTo = nil
@@ -83,9 +103,10 @@ private struct SmartScanContent: View {
                 label: vm.mode == .identify ? "Identifying…" : "Diagnosing…"
             )
         case let .identified(card, jpeg):
-            VStack(spacing: Theme.Space.m) {
-                ScannedPhotoHeader(jpeg: jpeg)
-                CareCardView(card: card)
+            VStack(spacing: Theme.Space.l) {
+                // The photo lives inside the hero card now (its own header), so no
+                // separate ScannedPhotoHeader here.
+                CareCardView(card: card, jpeg: jpeg)
                 identifyActions(card: card, jpeg: jpeg)
             }
         case let .diagnosed(card, jpeg):
@@ -388,9 +409,11 @@ private struct PlantPickerSheet: View {
                             Text(plant.displayName)
                                 .fontWeight(.medium)
                                 .foregroundStyle(Theme.Color.textPrimary)
-                            Text(plant.commonName)
-                                .font(.caption)
-                                .foregroundStyle(Theme.Color.textSecondary)
+                            if let subtitle = plant.displaySubtitle {
+                                Text(subtitle)
+                                    .font(.caption)
+                                    .foregroundStyle(Theme.Color.textSecondary)
+                            }
                         }
                     }
                 }
@@ -420,3 +443,49 @@ private struct ScannedPhotoHeader: View {
         }
     }
 }
+
+#if DEBUG
+/// Generates a plausible foliage photo for the scan-result screenshot demo hook
+/// (no camera in the simulator). DEBUG-only — never shipped.
+enum DemoImage {
+    static func foliageJPEG() -> Data? {
+        let size = CGSize(width: 1080, height: 1080)
+        let renderer = UIGraphicsImageRenderer(size: size)
+        let image = renderer.image { ctx in
+            let cg = ctx.cgContext
+            // Deep-to-bright green diagonal wash as the base foliage tone.
+            let colors = [
+                UIColor(hex: 0x1E3D24).cgColor,
+                UIColor(hex: 0x3E7E46).cgColor,
+                UIColor(hex: 0x6FB477).cgColor,
+            ] as CFArray
+            let gradient = CGGradient(
+                colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors,
+                locations: [0, 0.55, 1])!
+            cg.drawLinearGradient(
+                gradient, start: .zero,
+                end: CGPoint(x: size.width, y: size.height), options: [])
+            // Layered translucent leaf silhouettes for depth so the scrim + text
+            // legibility read like a real photo, not a flat swatch.
+            let leaf = UIImage(systemName: "leaf.fill")
+            let placements: [(CGRect, CGFloat, CGFloat)] = [
+                (CGRect(x: -120, y: 120, width: 620, height: 620), -0.5, 0.18),
+                (CGRect(x: 520, y: -80, width: 700, height: 700), 0.7, 0.14),
+                (CGRect(x: 360, y: 500, width: 560, height: 560), 0.2, 0.20),
+                (CGRect(x: 60, y: 640, width: 460, height: 460), -0.9, 0.12),
+            ]
+            for (rect, angle, alpha) in placements {
+                cg.saveGState()
+                cg.translateBy(x: rect.midX, y: rect.midY)
+                cg.rotate(by: angle)
+                leaf?.withTintColor(.white, renderingMode: .alwaysOriginal)
+                    .draw(in: CGRect(x: -rect.width / 2, y: -rect.height / 2,
+                                     width: rect.width, height: rect.height),
+                          blendMode: .softLight, alpha: alpha)
+                cg.restoreGState()
+            }
+        }
+        return image.jpegData(compressionQuality: 0.9)
+    }
+}
+#endif

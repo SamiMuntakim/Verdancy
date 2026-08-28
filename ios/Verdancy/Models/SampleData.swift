@@ -102,6 +102,14 @@ extension CareCard {
     static let sampleUnknown = CareCard(
         species: "unknown", commonName: "Unknown Plant", toxicity: "High",
         taxonomy: nil, confidence: "Low")
+
+    /// A pet-safe, high-confidence result — mirrors the onboarding hero and shows
+    /// the positive safety verdict (used by the scan-result demo hook / previews).
+    static let sampleSafe = CareCard(
+        species: "calathea orbifolia", commonName: "Calathea Orbifolia", toxicity: "None",
+        taxonomy: Taxonomy(family: "Marantaceae", genus: "Calathea",
+                           species: "orbifolia", cultivar: nil),
+        confidence: "High")
 }
 
 extension CarePlan {
