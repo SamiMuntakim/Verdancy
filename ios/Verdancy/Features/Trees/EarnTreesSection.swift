@@ -103,7 +103,7 @@ private struct EarnRow: View {
         }
         .padding(Theme.Space.m)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.Color.surface, in: RoundedRectangle(cornerRadius: Theme.Radius.chip))
+        .background(Theme.Color.surface, in: RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous))
         .contentShape(Rectangle())
         .onTapGesture { action?() }
     }

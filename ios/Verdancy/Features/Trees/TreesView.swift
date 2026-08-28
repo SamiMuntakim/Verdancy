@@ -135,7 +135,7 @@ private struct CommunityHeader: View {
     var body: some View {
         VStack(spacing: Theme.Space.s) {
             Text("\(forest.totalTrees)")
-                .font(.system(size: 56, weight: .bold, design: .rounded))
+                .font(.system(size: 56, weight: .bold, design: .rounded).monospacedDigit())
                 .foregroundStyle(Theme.Color.leaf)
                 .contentTransition(.numericText())
             Text(forest.totalTrees == 1
@@ -165,10 +165,10 @@ private struct CommunityTreeRow: View {
             if let image = tree.image {
                 CachedAsyncImage(imageRef: image, downloadURL: image)
                     .frame(width: 56, height: 56)
-                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.chip))
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous))
             } else {
                 ZStack {
-                    RoundedRectangle(cornerRadius: Theme.Radius.chip)
+                    RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous)
                         .fill(Theme.Color.leaf.opacity(0.12))
                     Image(systemName: "tree.fill").foregroundStyle(Theme.Color.leaf)
                 }

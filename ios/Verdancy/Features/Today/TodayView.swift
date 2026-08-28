@@ -134,7 +134,7 @@ struct StatChip: View {
                 .foregroundStyle(tint)
                 .frame(width: 26, height: 26)
                 .background(tint.opacity(0.12), in: Circle())
-            Text(value).fontWeight(.bold)
+            Text(value).fontWeight(.bold).monospacedDigit()
             Text(label).font(.caption).foregroundStyle(Theme.Color.textSecondary)
         }
         .padding(.horizontal, Theme.Space.m)

@@ -110,7 +110,7 @@ private struct ImpactHeader: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.vertical, Theme.Space.m)
         .padding(.horizontal, Theme.Space.xs)
-        .background(Theme.Color.surface, in: RoundedRectangle(cornerRadius: Theme.Radius.chip))
+        .background(Theme.Color.surface, in: RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous))
     }
 }
 
@@ -181,7 +181,7 @@ private struct PlantedTreeRow: View {
         if let image = tree.speciesImage {
             CachedAsyncImage(imageRef: image, downloadURL: image)
                 .frame(width: 44, height: 44)
-                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.chip))
+                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous))
         } else {
             thumbnailFallback
                 .frame(width: 44, height: 44)
@@ -190,7 +190,7 @@ private struct PlantedTreeRow: View {
 
     private var thumbnailFallback: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: Theme.Radius.chip)
+            RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous)
                 .fill(Theme.Color.leaf.opacity(0.12))
             Image(systemName: "tree.fill")
                 .font(.footnote.weight(.semibold))
