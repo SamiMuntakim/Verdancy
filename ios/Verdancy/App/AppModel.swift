@@ -265,6 +265,8 @@ final class AppModel {
             garden.ensureBuddiesForAll()
             pendingBloom = true
             awaitGrantedTrees()
+            // Keep the paywall's "Day 5 — we remind you" promise for the trial.
+            if plan == .annual { await notifications.scheduleTrialReminder(inDays: 5) }
         }
     }
 
@@ -350,6 +352,7 @@ final class AppModel {
         WidgetShared.clear()
         WidgetCenter.shared.reloadAllTimelines()
         notifications.cancelAll()
+        notifications.clearTrialReminder()
         streak.reset()
         garden.reset()
         knewPlants = false

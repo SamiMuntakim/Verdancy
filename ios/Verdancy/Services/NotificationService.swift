@@ -38,10 +38,17 @@ final class NotificationService {
     func reschedule(for plants: [Plant], streak: Int) async {
         let center = UNUserNotificationCenter.current()
         center.removeAllPendingNotificationRequests()
-        guard remindersEnabled else { return }
 
         let status = await center.notificationSettings().authorizationStatus
         guard status == .authorized || status == .provisional else { return }
+
+        // The trial-ending heads-up is a billing courtesy the paywall promises
+        // ("Day 5 — we remind you"), not a care reminder: it survives the
+        // reminders toggle, and must be re-added here because the wholesale
+        // reset above just dropped it.
+        scheduleTrialReminderIfPending(center: center, now: Date())
+
+        guard remindersEnabled else { return }
 
         let now = Date()
         let cal = Calendar.current
@@ -106,5 +113,46 @@ final class NotificationService {
 
     func cancelAll() {
         UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
+    }
+
+    // MARK: Trial-ending reminder (the paywall's Day-5 promise)
+
+    private let trialReminderKey = "verdancy.trialReminder.fireDate"
+
+    /// Schedule the one-off heads-up before the trial converts. The fire date is
+    /// persisted so `reschedule`'s wholesale reset can keep re-adding it until it
+    /// fires; once the date passes, the stored key is dropped.
+    func scheduleTrialReminder(inDays days: Int) async {
+        let fire = Date().addingTimeInterval(TimeInterval(days) * 86_400)
+        UserDefaults.standard.set(fire, forKey: trialReminderKey)
+        // They just subscribed — an acceptable moment for the permission sheet if
+        // it never appeared (it normally shows at the first saved plant).
+        await requestAuthorizationIfNeeded()
+        scheduleTrialReminderIfPending(center: UNUserNotificationCenter.current(), now: Date())
+    }
+
+    /// Forget the pending trial reminder (sign-out).
+    func clearTrialReminder() {
+        UserDefaults.standard.removeObject(forKey: trialReminderKey)
+    }
+
+    private func scheduleTrialReminderIfPending(center: UNUserNotificationCenter, now: Date) {
+        guard let fire = UserDefaults.standard.object(forKey: trialReminderKey) as? Date else {
+            return
+        }
+        guard fire > now else {
+            UserDefaults.standard.removeObject(forKey: trialReminderKey)
+            return
+        }
+
+        let content = UNMutableNotificationContent()
+        content.title = "Your free week wraps up in 2 days 🌱"
+        content.body = "Keep growing and your 10 trees are planted on Day 7 — or cancel anytime in two taps. No surprises."
+        content.sound = .default
+
+        let trigger = UNTimeIntervalNotificationTrigger(
+            timeInterval: max(fire.timeIntervalSince(now), 60), repeats: false)
+        center.add(UNNotificationRequest(
+            identifier: "trial-reminder", content: content, trigger: trigger))
     }
 }
