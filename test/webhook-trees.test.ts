@@ -45,6 +45,7 @@ const annual = (over: Record<string, unknown> = {}) => ({
     type: 'INITIAL_PURCHASE',
     app_user_id: 'sub-1',
     product_id: 'verdancy_annual',
+    period_type: 'NORMAL',
     ...over,
   },
 });
@@ -110,6 +111,33 @@ describe('annual vs monthly tree grants', () => {
     expect(mockGrant).toHaveBeenCalledWith(expect.objectContaining({ quantity: 10 }));
   });
 
+  // A free trial is INITIAL_PURCHASE with period_type TRIAL. Planting there would
+  // spend real money before any arrived, refundable by cancelling on day six.
+  test('starting a free TRIAL plants nothing', async () => {
+    const res = await call(annual({ period_type: 'TRIAL' }));
+    expect(res.statusCode).toBe(200);
+    expect(ddbMock.commandCalls(UpdateCommand).length).toBeGreaterThan(0); // entitlement on
+    expect(mockGrant).not.toHaveBeenCalled(); // but nothing funded
+  });
+
+  test('the trial converting to paid funds the trees', async () => {
+    await call(annual({ type: 'RENEWAL', id: 'evt-conv', period_type: 'NORMAL' }));
+    expect(mockGrant).toHaveBeenCalledWith(expect.objectContaining({ quantity: 10 }));
+  });
+
+  test('an INTRO / PROMOTIONAL period plants nothing', async () => {
+    await call(annual({ period_type: 'INTRO' }));
+    await call(annual({ id: 'evt-promo', period_type: 'PROMOTIONAL' }));
+    expect(mockGrant).not.toHaveBeenCalled();
+  });
+
+  test('a missing period_type errs toward not spending', async () => {
+    await call({
+      event: { id: 'e', type: 'INITIAL_PURCHASE', app_user_id: 's', product_id: 'verdancy_annual' },
+    });
+    expect(mockGrant).not.toHaveBeenCalled();
+  });
+
   test('a planting failure still returns 200 (entitlement ack is not blocked)', async () => {
     mockGrant.mockRejectedValue(new Error('tree-nation down'));
     const res = await call(annual());
@@ -121,6 +149,12 @@ describe('referral trees', () => {
   test('a SANDBOX referral is credited but plants no trees', async () => {
     ddbMock.on(GetCommand).resolves({ Item: { referred_by: 'inviter-9' } });
     await call(annual({ environment: 'SANDBOX' }));
+    expect(mockGrant).not.toHaveBeenCalled();
+  });
+
+  test('a referral is NOT credited while the friend is only on a trial', async () => {
+    ddbMock.on(GetCommand).resolves({ Item: { referred_by: 'inviter-9' } });
+    await call(annual({ period_type: 'TRIAL' }));
     expect(mockGrant).not.toHaveBeenCalled();
   });
 

@@ -45,6 +45,8 @@ interface RevenueCatEvent {
   product_id?: string;
   /** RevenueCat sends 'SANDBOX' for test purchases, 'PRODUCTION' for real ones. */
   environment?: string;
+  /** 'TRIAL' | 'INTRO' | 'PROMOTIONAL' | 'NORMAL' — only NORMAL means money moved. */
+  period_type?: string;
   expiration_at_ms?: number;
 }
 
@@ -78,6 +80,25 @@ function isSandbox(event: RevenueCatEvent): boolean {
 }
 
 /**
+ * Only a PAID period funds trees.
+ *
+ * A free trial arrives as INITIAL_PURCHASE with `period_type: "TRIAL"`, so
+ * without this a 7-day trial planted its full grant up front — real money spent
+ * before any arrived, and refundable by simply cancelling on day six. When the
+ * trial converts, RevenueCat sends a RENEWAL with `period_type: "NORMAL"`, and
+ * the trees are funded then: the tree follows the payment, not the signup.
+ *
+ * Unknown or missing period types are treated as unpaid. That errs toward not
+ * spending, and the log line makes the case visible rather than silent.
+ */
+function isPaidPeriod(event: RevenueCatEvent): boolean {
+  const period = (event.period_type ?? '').toUpperCase();
+  if (period === 'NORMAL') return true;
+  console.log(`No trees: period_type is "${event.period_type ?? 'missing'}", not a paid period`);
+  return false;
+}
+
+/**
  * Plant a subscription period's trees: 10 for a year, 1 for a month. The
  * milestone id is unique per RevenueCat event, so a retried or duplicated
  * delivery of the SAME event can't double-plant, while each real renewal is a
@@ -90,6 +111,7 @@ async function grantSubscriptionTrees(event: RevenueCatEvent, sub: string): Prom
     console.log('Sandbox purchase — entitlement granted, no trees planted');
     return;
   }
+  if (!isPaidPeriod(event)) return; // a trial funds nothing until it converts
   const periodKey = event.id ?? String(event.expiration_at_ms ?? '');
   if (!periodKey) return;
   await grantTrees({
@@ -176,12 +198,14 @@ export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGateway
         await grantSubscriptionTrees(rcEvent, appUserId).catch(() => {
           console.error('Subscription tree grant failed');
         });
-      }
-      if (type === 'INITIAL_PURCHASE') {
-        // Best-effort: a referral-credit failure must not fail the entitlement ack.
-        await creditReferralIfAny(appUserId, isSandbox(rcEvent)).catch(() => {
-          console.error('Referral credit failed');
-        });
+        // Referrals wait for money too, so this runs on the converting RENEWAL
+        // as well as a straight purchase. `markReferralCredited` is a one-time
+        // claim, so repeating it across renewals credits exactly once.
+        if (isPaidPeriod(rcEvent)) {
+          await creditReferralIfAny(appUserId, isSandbox(rcEvent)).catch(() => {
+            console.error('Referral credit failed');
+          });
+        }
       }
     } else if (DEACTIVATE.has(type)) {
       await setEntitlement(appUserId, false, toEpochSeconds(rcEvent.expiration_at_ms));

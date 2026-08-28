@@ -114,7 +114,10 @@ describe('entitlement updates (PRD 4.6)', () => {
 });
 
 describe('referral credit on first purchase (iOS-PRD §10)', () => {
-  const initialPurchase = { event: { type: 'INITIAL_PURCHASE', app_user_id: 'buyer-sub' } };
+  // period_type NORMAL = a real paid purchase; a trial funds nothing.
+  const initialPurchase = {
+    event: { type: 'INITIAL_PURCHASE', app_user_id: 'buyer-sub', period_type: 'NORMAL' },
+  };
 
   test('credits both parties exactly once when referred_by is set', async () => {
     ddbMock.on(GetCommand).resolves({ Item: { referred_by: 'inviter-sub' } });

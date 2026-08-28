@@ -98,7 +98,7 @@ struct PaywallView: View {
                     .foregroundStyle(Theme.Color.textSecondary)
                     // Each plan promises only what it actually funds.
                     Text(plan == .annual
-                         ? "No charge until your free trial ends. Cancel in two taps. Your 10 trees are funded when your first year starts."
+                         ? "No charge until your free trial ends. Cancel in two taps. Your 10 trees are funded when your first payment goes through."
                          : "Cancel in two taps. A real tree is funded every month you subscribe.")
                         .font(.caption2).multilineTextAlignment(.center)
                         .foregroundStyle(Theme.Color.textSecondary)
