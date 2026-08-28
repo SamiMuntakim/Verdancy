@@ -1,3 +1,4 @@
+import StoreKit
 import SwiftUI
 
 /// Dedicated onboarding flow (iOS-PRD §8.1): one show-the-aha hook screen → a short
@@ -27,12 +28,6 @@ enum PetContext {
 /// quiz short"). Coarse enum-like values only — no free text — mirroring the
 /// Analytics privacy rule. Backed by UserDefaults; read anywhere in the app.
 enum OnboardingProfile {
-    /// Attribution — where the user first heard about us.
-    static var source: String? {
-        get { UserDefaults.standard.string(forKey: "verdancy.onboarding.source") }
-        set { UserDefaults.standard.set(newValue, forKey: "verdancy.onboarding.source") }
-    }
-
     /// Coarse bucket for how many plants the user keeps.
     static var plantCount: String? {
         get { UserDefaults.standard.string(forKey: "verdancy.onboarding.plantCount") }
@@ -43,6 +38,24 @@ enum OnboardingProfile {
     static var experience: String? {
         get { UserDefaults.standard.string(forKey: "verdancy.onboarding.experience") }
         set { UserDefaults.standard.set(newValue, forKey: "verdancy.onboarding.experience") }
+    }
+
+    /// How bright the user's space is — drives care + placement tips.
+    static var light: String? {
+        get { UserDefaults.standard.string(forKey: "verdancy.onboarding.light") }
+        set { UserDefaults.standard.set(newValue, forKey: "verdancy.onboarding.light") }
+    }
+
+    /// The user's self-reported biggest struggle — the plan leans into it.
+    static var struggle: String? {
+        get { UserDefaults.standard.string(forKey: "verdancy.onboarding.struggle") }
+        set { UserDefaults.standard.set(newValue, forKey: "verdancy.onboarding.struggle") }
+    }
+
+    /// One-shot guard so the App Store rating prompt is only ever requested once.
+    static var reviewPrompted: Bool {
+        get { UserDefaults.standard.bool(forKey: "verdancy.onboarding.reviewPrompted") }
+        set { UserDefaults.standard.set(newValue, forKey: "verdancy.onboarding.reviewPrompted") }
     }
 }
 
@@ -66,6 +79,7 @@ private struct QuizQuestion: Identifiable {
 
 struct OnboardingView: View {
     @Environment(AppModel.self) private var app
+    @Environment(\.requestReview) private var requestReview
     @State private var page = 0
     @State private var forward = true
     @State private var isWorking = false
@@ -78,19 +92,6 @@ struct OnboardingView: View {
 
     /// The short quiz (iOS-PRD §8.1). Pets is a separate final page below.
     private let questions: [QuizQuestion] = [
-        QuizQuestion(
-            id: "source",
-            title: "Where did you find us?",
-            subtitle: "Helps us reach more plant lovers like you.",
-            pendingChip: nil,
-            options: [
-                QuizOption(value: "social", label: "Social media", icon: "bubble.left.and.bubble.right.fill"),
-                QuizOption(value: "app_store", label: "App Store search", icon: "magnifyingglass"),
-                QuizOption(value: "friend", label: "Friend or family", icon: "heart.fill"),
-                QuizOption(value: "web", label: "Web search or article", icon: "safari.fill"),
-                QuizOption(value: "other", label: "Somewhere else", icon: "ellipsis"),
-            ]
-        ),
         QuizQuestion(
             id: "plantCount",
             title: "How many plants live with you?",
@@ -115,12 +116,37 @@ struct OnboardingView: View {
                 QuizOption(value: "expert", label: "Very experienced", icon: "crown.fill"),
             ]
         ),
+        QuizQuestion(
+            id: "light",
+            title: "How bright is your space?",
+            subtitle: "Light drives almost everything about care.",
+            pendingChip: "Light level…",
+            options: [
+                QuizOption(value: "bright", label: "Bright and sunny", icon: "sun.max.fill"),
+                QuizOption(value: "medium", label: "Medium, indirect", icon: "cloud.sun.fill"),
+                QuizOption(value: "low", label: "Low light", icon: "moon.fill"),
+                QuizOption(value: "mixed", label: "A mix of spots", icon: "sparkles"),
+            ]
+        ),
+        QuizQuestion(
+            id: "struggle",
+            title: "What trips you up most?",
+            subtitle: "We'll aim your plan straight at it.",
+            pendingChip: "Your struggle…",
+            options: [
+                QuizOption(value: "overwater", label: "Overwatering", icon: "drop.fill"),
+                QuizOption(value: "forget", label: "Forgetting to water", icon: "bell.slash.fill"),
+                QuizOption(value: "pests", label: "Pests and disease", icon: "ladybug.fill"),
+                QuizOption(value: "light", label: "Not enough light", icon: "cloud.sun.fill"),
+            ]
+        ),
     ]
 
-    /// Total steps: hook + quiz questions + pets + plan assembly + sign-up.
-    private var totalPages: Int { 1 + questions.count + 3 }
-    private var petsPage: Int { totalPages - 3 }
-    private var buildPage: Int { totalPages - 2 }
+    /// Total steps: hook + quiz questions + pets + plan assembly + plan reveal + sign-up.
+    private var totalPages: Int { 1 + questions.count + 4 }
+    private var petsPage: Int { totalPages - 4 }
+    private var buildPage: Int { totalPages - 3 }
+    private var revealPage: Int { totalPages - 2 }
     private var authPage: Int { totalPages - 1 }
     /// Quiz step number for the "n of 4" header label (pets is the last question).
     private var questionNumber: Int? {
@@ -161,9 +187,10 @@ struct OnboardingView: View {
             // works if they want to walk through it again.
             if AppModel.hasOnboarded {
                 page = authPage
-                if let v = OnboardingProfile.source { answers["source"] = v }
                 if let v = OnboardingProfile.plantCount { answers["plantCount"] = v }
                 if let v = OnboardingProfile.experience { answers["experience"] = v }
+                if let v = OnboardingProfile.light { answers["light"] = v }
+                if let v = OnboardingProfile.struggle { answers["struggle"] = v }
                 petsAnswer = PetContext.hasPets
             }
             Analytics.log("onboarding_viewed")
@@ -232,8 +259,10 @@ struct OnboardingView: View {
             PlanBuildView(rows: planBuildRows) {
                 if page == buildPage { goNext() }
             }
+        } else if page == revealPage {
+            planRevealHero
         } else {
-            planReadyHero
+            planSaveHero
         }
     }
 
@@ -307,9 +336,10 @@ struct OnboardingView: View {
     private func answer(_ question: QuizQuestion, _ option: QuizOption) {
         answers[question.id] = option.value
         switch question.id {
-        case "source": OnboardingProfile.source = option.value
         case "plantCount": OnboardingProfile.plantCount = option.value
         case "experience": OnboardingProfile.experience = option.value
+        case "light": OnboardingProfile.light = option.value
+        case "struggle": OnboardingProfile.struggle = option.value
         default: break
         }
         Analytics.log("quiz_answered", ["question": question.id, "answer": option.value])
@@ -355,11 +385,45 @@ struct OnboardingView: View {
     private var planBuildRows: [PlanBuildView.Row] {
         var rows: [PlanBuildView.Row] = []
         rows.append(.init(icon: "leaf.fill", text: collectionLine))
+        rows.append(.init(icon: "sun.max.fill", text: lightLine.title))
+        rows.append(.init(icon: "target", text: struggleLine.title))
         rows.append(.init(icon: "bell.fill", text: paceLine.title))
         rows.append(.init(icon: "pawprint.fill",
                           text: petsAnswer == true ? "Pet-safety alerts switched on"
                                                    : "Toxicity flags on every scan"))
         return rows
+    }
+
+    /// Biggest-struggle → the plan line that leans straight into it.
+    private var struggleLine: (title: String, detail: String) {
+        switch answers["struggle"] {
+        case "overwater":
+            return ("Overwater-proof watering", "We space watering out and warn before you pour")
+        case "forget":
+            return ("Reminders that reach you", "Nudges timed so a watering never slips")
+        case "pests":
+            return ("Early pest & disease checks", "Diagnose trouble from a photo before it spreads")
+        case "light":
+            return ("Light-first placement", "We flag when a plant needs a brighter spot")
+        default:
+            return ("Aimed at your weak spot", "Your plan leans into what trips you up")
+        }
+    }
+
+    /// Light level → placement and watering guidance for their space.
+    private var lightLine: (title: String, detail: String) {
+        switch answers["light"] {
+        case "bright":
+            return ("Tuned for bright rooms", "Sun-loving picks, watering paced to match")
+        case "medium":
+            return ("Tuned for indirect light", "The sweet spot for most houseplants")
+        case "low":
+            return ("Low-light friendly", "Shade-tolerant picks and gentler watering")
+        case "mixed":
+            return ("Balanced for mixed light", "Placement tips room by room")
+        default:
+            return ("Matched to your light", "Placement tips for your space")
+        }
     }
 
     private var collectionLine: String {
@@ -384,16 +448,26 @@ struct OnboardingView: View {
         }
     }
 
-    /// The final page: the *only* place auth appears — framed as saving the plan
-    /// they just watched being assembled. Buttons live in `footer`.
-    private var planReadyHero: some View {
+    /// The "aha" reveal (the article's Personalized Plan Reveal): their numbers and
+    /// their tailored plan, assembled from the quiz they just answered — so the next
+    /// screen asks them to save *their own plan*, not to buy ours. This is also the
+    /// peak-delight moment where we request an App Store rating (once), before the
+    /// paywall, to seed social proof.
+    private var planRevealHero: some View {
         VStack(alignment: .leading, spacing: Theme.Space.l) {
             VStack(alignment: .leading, spacing: Theme.Space.s) {
                 Text("Your care plan is ready 🌱")
                     .font(.title.weight(.bold))
-                Text("Create a free account to save it, then scan your first plant.")
+                Text("Built from your answers — tuned to your home, your plants, and what trips you up.")
                     .font(.subheadline)
                     .foregroundStyle(Theme.Color.textSecondary)
+            }
+
+            // Their numbers: the quiz turned into a plan at a glance.
+            HStack(spacing: Theme.Space.s) {
+                revealStat(icon: "leaf.fill", value: collectionStat, label: "your plants")
+                revealStat(icon: "drop.fill", value: "Smart", label: "watering")
+                revealStat(icon: "calendar", value: "30 days", label: "mapped out")
             }
 
             VStack(alignment: .leading, spacing: 0) {
@@ -413,6 +487,12 @@ struct OnboardingView: View {
                     planRow(icon: "drop.fill", tint: Theme.Color.leaf,
                             title: "Conservative watering windows",
                             detail: "Overwatering is the #1 plant killer, so we water less often")
+                    Divider().overlay(Theme.Color.separator)
+                    planRow(icon: "sun.max.fill", tint: Theme.Color.warning,
+                            title: lightLine.title, detail: lightLine.detail)
+                    Divider().overlay(Theme.Color.separator)
+                    planRow(icon: "target", tint: Theme.Color.leafDeep,
+                            title: struggleLine.title, detail: struggleLine.detail)
                     Divider().overlay(Theme.Color.separator)
                     planRow(icon: petsAnswer == true ? "pawprint.fill" : "shield.fill",
                             tint: Theme.Color.terracotta,
@@ -435,6 +515,78 @@ struct OnboardingView: View {
             )
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .onAppear { askForReviewIfNeeded() }
+    }
+
+    /// The compact stat tile in the reveal's "their numbers" row.
+    private func revealStat(icon: String, value: String, label: String) -> some View {
+        VStack(spacing: 3) {
+            Image(systemName: icon)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Theme.Color.leaf)
+            Text(value)
+                .font(.subheadline.weight(.bold))
+                .foregroundStyle(Theme.Color.textPrimary)
+                .monospacedDigit()
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(Theme.Color.textSecondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, Theme.Space.m)
+        .background(Theme.Color.surface,
+                    in: RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous)
+                .strokeBorder(Theme.Color.separator.opacity(0.7), lineWidth: 1)
+        )
+    }
+
+    /// Short collection value for the reveal's stat row.
+    private var collectionStat: String {
+        switch answers["plantCount"] {
+        case "none": return "First"
+        case "1_5": return "1–5"
+        case "6_10": return "6–10"
+        case "11_25": return "11–25"
+        case "25_plus": return "25+"
+        default: return "Your"
+        }
+    }
+
+    /// The final page: the *only* place auth appears — framed as saving the plan
+    /// they just watched being built. Buttons live in `footer`.
+    private var planSaveHero: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.l) {
+            ZStack {
+                Circle().fill(Theme.Color.leaf.opacity(0.14)).frame(width: 72, height: 72)
+                Image(systemName: "bookmark.fill")
+                    .font(.title.weight(.semibold))
+                    .foregroundStyle(Theme.Color.leaf)
+            }
+            VStack(alignment: .leading, spacing: Theme.Space.s) {
+                Text("Save your plan")
+                    .font(.title.weight(.bold))
+                Text("Create a free account to keep your plan, then scan your first plant. No credit card.")
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.Color.textSecondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Apple's native rating prompt, fired once at the reveal's peak delight and just
+    /// before the paywall. Apple rate-limits and may silently no-op it, and we never
+    /// gate progress on it — it only seeds App Store social proof from happy users.
+    private func askForReviewIfNeeded() {
+        Analytics.log("plan_revealed")
+        guard !OnboardingProfile.reviewPrompted else { return }
+        OnboardingProfile.reviewPrompted = true
+        // Let the reveal land first, then ask.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+            Analytics.log("review_prompted")
+            requestReview()
+        }
     }
 
     private func planRow(icon: String, tint: Color, title: String, detail: String) -> some View {
@@ -467,6 +619,9 @@ struct OnboardingView: View {
             }
         } else if page <= questions.count || page == petsPage {
             planSoFarStrip
+        } else if page == revealPage {
+            Button("Save my plan") { goNext() }
+                .buttonStyle(.primary)
         } else if page == authPage {
             authButtons
         }
@@ -489,6 +644,8 @@ struct OnboardingView: View {
         var chips: [String] = []
         if answers["plantCount"] != nil { chips.append(collectionLine) }
         if answers["experience"] != nil { chips.append(paceLine.title) }
+        if answers["light"] != nil { chips.append(lightLine.title) }
+        if answers["struggle"] != nil { chips.append(struggleLine.title) }
         if let pets = petsAnswer {
             chips.append(pets ? "Pet-safety alerts on" : "Toxicity flags on")
         }
@@ -540,8 +697,10 @@ struct OnboardingView: View {
     private func goBack() {
         guard page > 0 else { return }
         forward = false
-        // Back from the sign-up page skips the auto-advancing assembly beat.
-        let target = page == authPage ? petsPage : page - 1
+        // The plan-assembly beat auto-advances, so never land on it going back
+        // (from the reveal page, step straight back to the pets question).
+        var target = page - 1
+        if target == buildPage { target = petsPage }
         withAnimation(.easeInOut(duration: 0.28)) { page = target }
     }
 

@@ -38,6 +38,7 @@ struct PaywallView: View {
                     hero
                     TrialTimeline(plan: plan)
                     planRows
+                    dueToday
                     subscribeButton
                     reassurance
                     if let error {
@@ -100,6 +101,39 @@ struct PaywallView: View {
         }
     }
 
+    /// The article's highest-confidence lever: say the money isn't moving *today*,
+    /// directly above the button where the thumb hesitates. Annual is a true "$0.00
+    /// today" (7-day trial); monthly bills now, so it states the real charge honestly
+    /// rather than a misleading "no payment."
+    private var dueToday: some View {
+        VStack(spacing: 2) {
+            if plan == .annual {
+                Text("No payment due today")
+                    .font(.headline.weight(.bold))
+                    .foregroundStyle(Theme.Color.textPrimary)
+                    .monospacedDigit()
+                if let total = annualPrice?.total {
+                    Text("Then \(total)/yr on Day 7 · cancel anytime before")
+                        .font(.footnote)
+                        .foregroundStyle(Theme.Color.textSecondary)
+                        .monospacedDigit()
+                }
+            } else {
+                if let total = monthlyPrice?.total {
+                    Text("\(total) billed today")
+                        .font(.headline.weight(.bold))
+                        .foregroundStyle(Theme.Color.textPrimary)
+                        .monospacedDigit()
+                }
+                Text("Renews monthly · cancel anytime")
+                    .font(.footnote)
+                    .foregroundStyle(Theme.Color.textSecondary)
+            }
+        }
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: .infinity)
+    }
+
     private var subscribeButton: some View {
         Button {
             Task { await subscribe() }
@@ -112,15 +146,14 @@ struct PaywallView: View {
         .disabled(isWorking || priceUnavailable)
     }
 
-    /// The anxiety-killer, directly under the CTA where the thumb hesitates.
+    /// Money framing lives in `dueToday` above the button; this line under the CTA
+    /// carries the cancel-ease reassurance, the other half of trial anxiety.
     private var reassurance: some View {
         HStack(spacing: Theme.Space.xs) {
             Image(systemName: "checkmark")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(Theme.Color.leaf)
-            Text(plan == .annual
-                 ? "No charge until Day 7 · Cancel in two taps"
-                 : "Billed today · Cancel anytime in two taps")
+            Text("Cancel anytime in two taps")
                 .font(.footnote.weight(.medium))
                 .foregroundStyle(Theme.Color.textSecondary)
         }
