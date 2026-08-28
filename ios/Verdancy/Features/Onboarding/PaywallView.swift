@@ -26,7 +26,7 @@ struct PaywallView: View {
 
     private func annualSubtitle(_ price: EntitlementService.PlanPrice?) -> String {
         if let perMonth = price?.perMonth, let total = price?.total {
-            return "Then \(total)/yr — about \(perMonth)/mo · funds 10 trees"
+            return "Then \(total)/yr, about \(perMonth)/mo · funds 10 trees"
         }
         return "7-day free trial · billed yearly · funds 10 trees"
     }
@@ -182,25 +182,25 @@ struct TrialTimeline: View {
         case .annual:
             return [
                 Step(icon: "lock.open.fill", tint: Theme.Color.leaf,
-                     title: "Today — everything unlocks",
-                     detail: "Unlimited IDs, tailored care plans, plant diagnosis — and your buddy blooms."),
+                     title: "Today, everything unlocks",
+                     detail: "Unlimited IDs, tailored care plans, plant diagnosis, and your buddy blooms."),
                 Step(icon: "bell.badge.fill", tint: Theme.Color.warning,
-                     title: "Day 5 — we remind you",
+                     title: "Day 5, we remind you",
                      detail: "A heads-up before your trial ends. Cancel in two taps, keep the free tier."),
                 Step(icon: "tree.fill", tint: Theme.Color.leafDeep,
-                     title: "Day 7 — your 10 trees go in the ground",
+                     title: "Day 7, your 10 trees go in the ground",
                      detail: "Your first payment funds 10 real trees through \(AppConfig.plantingPartner), certificates and all."),
             ]
         case .monthly:
             return [
                 Step(icon: "lock.open.fill", tint: Theme.Color.leaf,
-                     title: "Today — everything unlocks",
-                     detail: "Unlimited IDs, tailored care plans, plant diagnosis — and your buddy blooms."),
+                     title: "Today, everything unlocks",
+                     detail: "Unlimited IDs, tailored care plans, plant diagnosis, and your buddy blooms."),
                 Step(icon: "tree.fill", tint: Theme.Color.leafDeep,
-                     title: "Every month — a real tree is planted",
+                     title: "Every month, a real tree is planted",
                      detail: "Each payment funds one tree through \(AppConfig.plantingPartner), certificate included."),
                 Step(icon: "hand.wave.fill", tint: Theme.Color.terracotta,
-                     title: "Anytime — cancel in two taps",
+                     title: "Cancel anytime, in two taps",
                      detail: "Your forest and its certificates stay yours."),
             ]
         }

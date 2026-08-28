@@ -264,7 +264,7 @@ struct OnboardingView: View {
                     .font(.largeTitle.weight(.bold))
                     .multilineTextAlignment(.center)
 
-                Text("Any plant's name, pet-safety, and care in seconds — and **10 real trees** planted with \(AppConfig.plantingPartner).")
+                Text("Point your camera at any plant for its name, pet-safety, and care in seconds. Keep them alive, and we plant **10 real trees** with \(AppConfig.plantingPartner).")
                     .font(.subheadline)
                     .multilineTextAlignment(.center)
                     .foregroundStyle(Theme.Color.textSecondary)
@@ -365,9 +365,9 @@ struct OnboardingView: View {
     private var collectionLine: String {
         switch answers["plantCount"] {
         case "none": return "Ready for your very first plant"
-        case "1_5": return "Sized for 1–5 plants"
-        case "6_10": return "Sized for 6–10 plants"
-        case "11_25": return "Sized for 11–25 plants"
+        case "1_5": return "Sized for 1 to 5 plants"
+        case "6_10": return "Sized for 6 to 10 plants"
+        case "11_25": return "Sized for 11 to 25 plants"
         case "25_plus": return "Sized for a 25+ plant jungle"
         default: return "Sized to your collection"
         }
@@ -391,7 +391,7 @@ struct OnboardingView: View {
             VStack(alignment: .leading, spacing: Theme.Space.s) {
                 Text("Your care plan is ready 🌱")
                     .font(.title.weight(.bold))
-                Text("Create a free account to save it — then you'll scan your first plant.")
+                Text("Create a free account to save it, then scan your first plant.")
                     .font(.subheadline)
                     .foregroundStyle(Theme.Color.textSecondary)
             }
@@ -412,7 +412,7 @@ struct OnboardingView: View {
                 VStack(spacing: 0) {
                     planRow(icon: "drop.fill", tint: Theme.Color.leaf,
                             title: "Conservative watering windows",
-                            detail: "Overwatering is the #1 plant killer — we err dry")
+                            detail: "Overwatering is the #1 plant killer, so we water less often")
                     Divider().overlay(Theme.Color.separator)
                     planRow(icon: petsAnswer == true ? "pawprint.fill" : "shield.fill",
                             tint: Theme.Color.terracotta,
