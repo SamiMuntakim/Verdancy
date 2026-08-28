@@ -86,6 +86,9 @@ private struct ImpactHeader: View {
                      icon: "globe.europe.africa.fill")
             }
         }
+        // Sized by the tallest tile so all three share one height — a wordier
+        // label must not make its neighbors look misaligned.
+        .fixedSize(horizontal: false, vertical: true)
         .padding(.vertical, Theme.Space.s)
     }
 
@@ -104,7 +107,7 @@ private struct ImpactHeader: View {
                 .foregroundStyle(Theme.Color.textSecondary)
                 .multilineTextAlignment(.center)
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.vertical, Theme.Space.m)
         .padding(.horizontal, Theme.Space.xs)
         .background(Theme.Color.surface, in: RoundedRectangle(cornerRadius: Theme.Radius.chip))

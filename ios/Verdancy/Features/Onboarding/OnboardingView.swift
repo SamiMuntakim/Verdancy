@@ -516,9 +516,15 @@ struct OnboardingView: View {
             if let error {
                 Text(error).font(.footnote).foregroundStyle(Theme.Color.danger)
             }
-            Text("No credit card to sign up. By continuing you agree to our Terms & Privacy Policy.")
+            // Markdown links so "Terms" and "Privacy Policy" are actually tappable
+            // at the moment of consent, not just named.
+            Text(.init(
+                "No credit card to sign up. By continuing you agree to our " +
+                "[Terms of Service](\(AppConfig.termsURL.absoluteString)) and " +
+                "[Privacy Policy](\(AppConfig.privacyURL.absoluteString))."))
                 .font(.caption2)
                 .foregroundStyle(Theme.Color.textSecondary)
+                .tint(Theme.Color.leaf)
                 .multilineTextAlignment(.center)
         }
     }

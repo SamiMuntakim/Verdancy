@@ -14,6 +14,7 @@ enum OasisSort: String, CaseIterable, Identifiable {
 struct MyOasisView: View {
     @Environment(AppModel.self) private var app
     @State private var searchText = ""
+    @State private var path: [Plant] = []
     @AppStorage("verdancy.oasisSort") private var sortRaw = OasisSort.recent.rawValue
 
     private let columns = [GridItem(.adaptive(minimum: 150), spacing: Theme.Space.m)]
@@ -49,7 +50,7 @@ struct MyOasisView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             Group {
                 if app.garden.plants.isEmpty {
                     OasisEmptyState { app.selectedTab = .scan }
@@ -72,6 +73,23 @@ struct MyOasisView: View {
             .background(Theme.Color.background)
             .navigationTitle("My Oasis")
             .navigationDestination(for: Plant.self) { PlantDetailView(plant: $0) }
+            #if DEBUG
+            // Screenshot automation: `-plant <plantId>` (mock mode) deep-opens a
+            // plant's detail. Inert in release and outside mock mode.
+            .task {
+                guard AppConfig.useMockAuth, path.isEmpty else { return }
+                let args = CommandLine.arguments
+                guard let i = args.firstIndex(of: "-plant"), i + 1 < args.count else { return }
+                // The mock garden loads async after launch — wait briefly for it.
+                for _ in 0..<25 {
+                    if let plant = app.garden.plants.first(where: { $0.plantId == args[i + 1] }) {
+                        path.append(plant)
+                        return
+                    }
+                    try? await Task.sleep(for: .milliseconds(200))
+                }
+            }
+            #endif
             .refreshable { await app.garden.refresh() }
             .searchable(text: $searchText, prompt: "Search your plants")
             .toolbar {
@@ -109,9 +127,11 @@ struct PlantCard: View {
                 Text(plant.displayName)
                     .font(.subheadline.weight(.semibold)).lineLimit(1)
                     .foregroundStyle(Theme.Color.textPrimary)
-                Text(plant.commonName)
-                    .font(.caption).lineLimit(1)
-                    .foregroundStyle(Theme.Color.textSecondary)
+                if let subtitle = plant.displaySubtitle {
+                    Text(subtitle)
+                        .font(.caption).lineLimit(1)
+                        .foregroundStyle(Theme.Color.textSecondary)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(Theme.Space.m)

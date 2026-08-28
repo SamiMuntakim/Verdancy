@@ -21,6 +21,21 @@ struct Plant: Codable, Identifiable, Hashable {
 
     var id: String { plantId }
     var displayName: String { nickname?.isEmpty == false ? nickname! : commonName }
+
+    /// Secondary line under `displayName` on cards and rows. With a nickname the
+    /// common name adds information; without one it would just repeat the title
+    /// ("Snake Plant / Snake Plant"), so fall back to the botanical species
+    /// ("Dracaena trifasciata"), or nothing when that's unknown too.
+    var displaySubtitle: String? {
+        if nickname?.isEmpty == false { return commonName }
+        let species = species.trimmingCharacters(in: .whitespaces)
+        guard !species.isEmpty,
+              species.lowercased() != "unknown",
+              species.caseInsensitiveCompare(commonName) != .orderedSame
+        else { return nil }
+        return species.prefix(1).uppercased() + species.dropFirst().lowercased()
+    }
+
     var toxicityLevel: Toxicity? { toxicity.flatMap(Toxicity.init(rawValue:)) }
 
     /// No personalized care plan generated yet → prompt "Finish personalizing care."

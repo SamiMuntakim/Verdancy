@@ -63,7 +63,9 @@ struct TodayView: View {
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
             .background(Theme.Color.background)
-            .navigationTitle("Today")
+            // The greeting header IS this screen's title — a large nav title above
+            // it would stack two 34pt headings ("Today" over "Good morning").
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 // Settings is a rare, secondary destination — a toolbar button is
                 // the platform-standard home for it, which frees the tab slot for

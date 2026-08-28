@@ -8,6 +8,22 @@ struct VerdancyApp: App {
     init() {
         let auth: AuthService = AppConfig.useMockAuth ? MockAuthService() : NativeAuthService()
         _app = State(initialValue: AppModel(auth: auth))
+        #if DEBUG
+        // Screenshot/dev automation: `simctl launch ... -signedIn -tab oasis` jumps
+        // straight to a tab in mock mode. Inert in release and outside mock mode.
+        if AppConfig.useMockAuth {
+            let args = CommandLine.arguments
+            if args.contains("-signedIn") {
+                _app = State(initialValue: AppModel(auth: MockAuthService(startSignedIn: true)))
+            }
+            if let i = args.firstIndex(of: "-tab"), i + 1 < args.count {
+                let tab: AppModel.Tab? = [
+                    "today": .today, "scan": .scan, "oasis": .oasis, "trees": .trees,
+                ][args[i + 1]]
+                if let tab { _app.wrappedValue.selectedTab = tab }
+            }
+        }
+        #endif
     }
 
     var body: some Scene {
