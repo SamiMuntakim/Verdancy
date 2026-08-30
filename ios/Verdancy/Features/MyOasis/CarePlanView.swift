@@ -17,7 +17,7 @@ struct CarePlanView: View {
     var body: some View {
         VStack(spacing: Theme.Space.m) {
             CarePlanSection(
-                icon: "drop.fill", tint: .blue, title: "Water",
+                icon: "drop.fill", tint: Theme.Color.water, title: "Water",
                 headline: "\(plan.water.amount) · every \(plan.water.cadenceDays) days",
                 detail: WaterPlan.dedupe(plan.water.instruction,
                                          amount: plan.water.amount,

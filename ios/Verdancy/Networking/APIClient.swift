@@ -100,7 +100,8 @@ final class APIClient {
     /// The whole app's forest, proxied+cached by our backend from Tree-Nation's
     /// public profile so one slow third party can't stall the client.
     func communityTrees() async throws -> CommunityForest {
-        try await send(Endpoint("GET", "/trees/community"), as: CommunityForest.self)
+        if AppConfig.useMockAuth { return .sample }
+        return try await send(Endpoint("GET", "/trees/community"), as: CommunityForest.self)
     }
 
     func trees() async throws -> TreeStatus {

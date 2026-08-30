@@ -26,10 +26,12 @@ struct CachedAsyncImage: View {
 
     private var placeholder: some View {
         ZStack {
-            Theme.Color.separator
+            LinearGradient(
+                colors: [Theme.Color.leaf.opacity(0.14), Theme.Color.separator.opacity(0.65)],
+                startPoint: .topLeading, endPoint: .bottomTrailing)
             Image(systemName: "leaf.fill")
-                .font(.title)
-                .foregroundStyle(Theme.Color.leaf.opacity(0.5))
+                .font(.system(size: 28, weight: .regular))
+                .foregroundStyle(Theme.Color.leaf.opacity(0.35))
         }
     }
 

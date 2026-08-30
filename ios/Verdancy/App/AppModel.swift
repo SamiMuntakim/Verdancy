@@ -36,6 +36,21 @@ final class AppModel {
     /// The caller's invite code (fetched lazily; included in share messages).
     var referralCode: String?
 
+    /// A section of Settings to reveal when it opens. Lets another tab (e.g. the
+    /// Trees "Invite a friend" row) deep-link straight to the relevant controls.
+    enum SettingsFocus { case invite }
+    /// Drives the Settings sheet, which is hosted on the Today tab. Setting these
+    /// via `openSettings` also switches to Today so the sheet has a presenter.
+    var showSettings = false
+    var settingsFocus: SettingsFocus?
+
+    /// Present Settings from anywhere, optionally scrolled to a specific section.
+    func openSettings(focus: SettingsFocus? = nil) {
+        settingsFocus = focus
+        selectedTab = .today
+        showSettings = true
+    }
+
     let auth: AuthService
     let api: APIClient
     let garden: GardenStore

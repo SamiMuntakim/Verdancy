@@ -2,8 +2,13 @@ import SwiftUI
 
 /// Settings (iOS-PRD §3.4).
 struct SettingsView: View {
+    /// When opened via a deep link (e.g. the Trees "Invite a friend" row), the
+    /// section to scroll into view on appear.
+    var focus: AppModel.SettingsFocus?
+
     @Environment(AppModel.self) private var app
     @Environment(\.dismiss) private var dismiss
+    @FocusState private var inviteFieldFocused: Bool
     @State private var showPaywall = false
     @State private var remindersOn = NotificationService.shared.remindersEnabled
     @State private var showDeleteConfirm = false
@@ -16,6 +21,7 @@ struct SettingsView: View {
 
     var body: some View {
         NavigationStack {
+            ScrollViewReader { proxy in
             List {
                 Section("Account") {
                     LabeledContent("Plan", value: app.isSubscribed ? "Subscriber" : "Free")
@@ -62,6 +68,7 @@ struct SettingsView: View {
                         TextField("Have a code? Enter it", text: $inviteCodeInput)
                             .textInputAutocapitalization(.characters)
                             .autocorrectionDisabled()
+                            .focused($inviteFieldFocused)
                         Button("Apply") { Task { await redeemInvite() } }
                             .disabled(inviteCodeInput.trimmingCharacters(in: .whitespaces).isEmpty
                                       || redeeming)
@@ -71,6 +78,7 @@ struct SettingsView: View {
                             .foregroundStyle(redeemSucceeded ? Theme.Color.leaf : Theme.Color.danger)
                     }
                 }
+                .id(Self.inviteSectionID)
 
                 Section("Notifications") {
                     Toggle("Care reminders", isOn: $remindersOn)
@@ -88,7 +96,29 @@ struct SettingsView: View {
                     Link("Privacy Policy", destination: AppConfig.privacyURL)
                     Link("Terms of Service", destination: AppConfig.termsURL)
                     Link("Support", destination: AppConfig.supportURL)
-                    LabeledContent("Version", value: appVersion)
+                }
+
+                // Quiet brand footer — the mark, the name, and the version, so the
+                // app signs its own name at the bottom of Settings.
+                Section {
+                    VStack(spacing: Theme.Space.xs) {
+                        BrandMark(size: 54)
+                            .padding(.bottom, Theme.Space.xs)
+                        Text("Verdancy")
+                            .font(.headline.weight(.bold))
+                            .kerning(0.2)
+                            .foregroundStyle(Theme.Color.textPrimary)
+                        Text("You grow plants. We grow forests.")
+                            .font(.caption)
+                            .foregroundStyle(Theme.Color.textSecondary)
+                        Text("Version \(appVersion)")
+                            .font(.caption2)
+                            .foregroundStyle(Theme.Color.textSecondary)
+                            .padding(.top, Theme.Space.xs)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, Theme.Space.m)
+                    .listRowBackground(Color.clear)
                 }
             }
             .navigationTitle("Settings")
@@ -119,8 +149,18 @@ struct SettingsView: View {
             } message: {
                 Text("This permanently removes your account, plants, photos, and data. This can't be undone.")
             }
+            .task {
+                // Arriving from a deep link (e.g. Trees → "Invite a friend"):
+                // bring the invite section into view and cue the code field.
+                guard focus == .invite else { return }
+                proxy.scrollTo(Self.inviteSectionID, anchor: .top)
+                inviteFieldFocused = true
+            }
+            }
         }
     }
+
+    private static let inviteSectionID = "grow-the-forest"
 
     private var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"

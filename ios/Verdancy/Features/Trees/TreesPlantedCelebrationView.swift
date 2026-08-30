@@ -46,11 +46,15 @@ struct TreesPlantedCelebrationView: View {
     // MARK: Forest header
 
     private var header: some View {
-        ZStack(alignment: .bottomLeading) {
-            LinearGradient(
-                colors: [Theme.Color.leafDeep, Color(red: 0.12, green: 0.24, blue: 0.14)],
-                startPoint: .top, endPoint: .bottom
-            )
+        // The gradient is the base so it — not the wider-than-screen forest row —
+        // sets the header's width; the forest and title ride as clipped overlays, so
+        // an oversized decorative row can't shift the whole layout off-screen.
+        LinearGradient(
+            colors: [Theme.Color.leafDeep, Color(red: 0.12, green: 0.24, blue: 0.14)],
+            startPoint: .top, endPoint: .bottom
+        )
+        .frame(height: 340)
+        .overlay(alignment: .bottom) {
             // A small forest, mid-tree tallest — the graphic is the grant itself.
             HStack(alignment: .bottom, spacing: Theme.Space.l) {
                 Image(systemName: "tree.fill").font(.system(size: 44)).opacity(0.25)
@@ -60,10 +64,10 @@ struct TreesPlantedCelebrationView: View {
                 Image(systemName: "tree.fill").font(.system(size: 40)).opacity(0.25)
             }
             .foregroundStyle(Theme.Color.leaf)
-            .frame(maxWidth: .infinity, alignment: .center)
             .padding(.bottom, 88)
             .scaleEffect(appeared ? 1 : 0.7, anchor: .bottom)
-
+        }
+        .overlay(alignment: .bottomLeading) {
             VStack(alignment: .leading, spacing: Theme.Space.xs) {
                 Text("IT'S OFFICIAL")
                     .font(.caption.weight(.bold))
@@ -77,7 +81,7 @@ struct TreesPlantedCelebrationView: View {
             .padding(.bottom, Theme.Space.xxl + Theme.Space.xl)
             .opacity(appeared ? 1 : 0)
         }
-        .frame(height: 340)
+        .clipped()
         .ignoresSafeArea(edges: .top)
     }
 

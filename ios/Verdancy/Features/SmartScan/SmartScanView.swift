@@ -48,14 +48,18 @@ private struct SmartScanContent: View {
                 let args = CommandLine.arguments
                 guard let i = args.firstIndex(of: "-scanDemo") else { return }
                 let variant = i + 1 < args.count ? args[i + 1] : "safe"
-                let card: CareCard = variant == "toxic" ? .sample
-                    : variant == "unknown" ? .sampleUnknown : .sampleSafe
                 // Show the clean "Save plant" CTA a first-time user sees, not the
-                // full-garden paywall the 3 sample plants would otherwise trigger.
+                // full-garden paywall the sample plants would otherwise trigger.
                 app.entitlement.isSubscribed = true
-                if let jpeg = DemoImage.foliageJPEG() {
-                    vm.phase = .identified(card, jpeg: jpeg)
+                guard let jpeg = DemoImage.foliageJPEG() else { return }
+                if variant == "diagnose" {
+                    vm.mode = .diagnose
+                    vm.phase = .diagnosed(.sample, jpeg: jpeg)
+                    return
                 }
+                let card: CareCard = variant == "toxic" ? .samplePothos
+                    : variant == "unknown" ? .sampleUnknown : .sample
+                vm.phase = .identified(card, jpeg: jpeg)
             }
             #endif
             .sheet(isPresented: $showCamera) {
@@ -110,9 +114,8 @@ private struct SmartScanContent: View {
                 identifyActions(card: card, jpeg: jpeg)
             }
         case let .diagnosed(card, jpeg):
-            VStack(spacing: Theme.Space.m) {
-                ScannedPhotoHeader(jpeg: jpeg)
-                DiagnosisCardView(card: card)
+            VStack(spacing: Theme.Space.l) {
+                DiagnosisCardView(card: card, jpeg: jpeg)
                 if let diagnosisSavedTo {
                     Label("Saved to \(diagnosisSavedTo)'s health history",
                           systemImage: "checkmark.circle.fill")
@@ -429,21 +432,6 @@ private struct PlantPickerSheet: View {
 
 /// The scanned photo shown above the result card, so the verdict reads as
 /// "here's what we found in *your* photo."
-private struct ScannedPhotoHeader: View {
-    let jpeg: Data
-
-    var body: some View {
-        if let image = UIImage(data: jpeg) {
-            Image(uiImage: image)
-                .resizable()
-                .scaledToFill()
-                .frame(maxWidth: .infinity)
-                .frame(height: 200)
-                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
-        }
-    }
-}
-
 #if DEBUG
 /// Generates a plausible foliage photo for the scan-result screenshot demo hook
 /// (no camera in the simulator). DEBUG-only — never shipped.

@@ -13,6 +13,9 @@ struct Plant: Codable, Identifiable, Hashable {
     let lightingNeeds: String?
     let fertilizerInfo: String?
     let confidence: String?
+    /// Bud archetype bucket from identify (broadleaf/trailing/succulent/upright/
+    /// fern/orchid), or nil for legacy/unidentified plants. Selects the bundled bud.
+    let archetype: String?
     let care: CareMap
     let carePlan: CarePlan?
     let createdAt: String?
@@ -45,7 +48,8 @@ struct Plant: Codable, Identifiable, Hashable {
     func withCare(_ care: CareMap) -> Plant {
         Plant(plantId: plantId, commonName: commonName, species: species, nickname: nickname,
               imageRef: imageRef, toxicity: toxicity, taxonomy: taxonomy, lightingNeeds: lightingNeeds,
-              fertilizerInfo: fertilizerInfo, confidence: confidence, care: care, carePlan: carePlan,
+              fertilizerInfo: fertilizerInfo, confidence: confidence, archetype: archetype,
+              care: care, carePlan: carePlan,
               createdAt: createdAt, downloadUrl: downloadUrl, buddy: buddy)
     }
 
@@ -53,7 +57,8 @@ struct Plant: Codable, Identifiable, Hashable {
     func edited(nickname: String?, care: CareMap) -> Plant {
         Plant(plantId: plantId, commonName: commonName, species: species, nickname: nickname,
               imageRef: imageRef, toxicity: toxicity, taxonomy: taxonomy, lightingNeeds: lightingNeeds,
-              fertilizerInfo: fertilizerInfo, confidence: confidence, care: care, carePlan: carePlan,
+              fertilizerInfo: fertilizerInfo, confidence: confidence, archetype: archetype,
+              care: care, carePlan: carePlan,
               createdAt: createdAt, downloadUrl: downloadUrl, buddy: buddy)
     }
 
@@ -61,7 +66,8 @@ struct Plant: Codable, Identifiable, Hashable {
     func withBuddy(_ buddy: Buddy?) -> Plant {
         Plant(plantId: plantId, commonName: commonName, species: species, nickname: nickname,
               imageRef: imageRef, toxicity: toxicity, taxonomy: taxonomy, lightingNeeds: lightingNeeds,
-              fertilizerInfo: fertilizerInfo, confidence: confidence, care: care, carePlan: carePlan,
+              fertilizerInfo: fertilizerInfo, confidence: confidence, archetype: archetype,
+              care: care, carePlan: carePlan,
               createdAt: createdAt, downloadUrl: downloadUrl, buddy: buddy)
     }
 }

@@ -57,16 +57,31 @@ struct MyOasisView: View {
                 } else if displayedPlants.isEmpty {
                     ContentUnavailableView.search(text: searchText)
                 } else {
-                    ScrollView {
-                        LazyVGrid(columns: columns, spacing: Theme.Space.m) {
-                            ForEach(displayedPlants) { plant in
-                                NavigationLink(value: plant) {
-                                    PlantCard(plant: plant, isSubscribed: app.isSubscribed)
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            LazyVGrid(columns: columns, spacing: Theme.Space.m) {
+                                ForEach(displayedPlants) { plant in
+                                    NavigationLink(value: plant) {
+                                        PlantCard(plant: plant, isSubscribed: app.isSubscribed)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .id(plant.id)
                                 }
-                                .buttonStyle(.plain)
+                            }
+                            .padding(Theme.Space.l)
+                        }
+                        #if DEBUG
+                        // Screenshot: scroll the full grid into view (collapses the
+                        // large title so all plants fit) — mock mode only.
+                        .onAppear {
+                            guard AppConfig.useMockAuth,
+                                  CommandLine.arguments.contains("-oasisScrolled"),
+                                  let last = displayedPlants.last else { return }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                                withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
                             }
                         }
-                        .padding(Theme.Space.l)
+                        #endif
                     }
                 }
             }
@@ -127,11 +142,13 @@ struct PlantCard: View {
                 Text(plant.displayName)
                     .font(.subheadline.weight(.semibold)).lineLimit(1)
                     .foregroundStyle(Theme.Color.textPrimary)
-                if let subtitle = plant.displaySubtitle {
-                    Text(subtitle)
-                        .font(.caption).lineLimit(1)
-                        .foregroundStyle(Theme.Color.textSecondary)
-                }
+                // Always reserve the subtitle line (a blank space when there's no
+                // botanical name) so every card is the same height — an even grid
+                // rhythm, never a row of ragged card bottoms.
+                Text(plant.displaySubtitle ?? " ")
+                    .font(.caption).lineLimit(1)
+                    .foregroundStyle(Theme.Color.textSecondary)
+                    .opacity(plant.displaySubtitle == nil ? 0 : 1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(Theme.Space.m)

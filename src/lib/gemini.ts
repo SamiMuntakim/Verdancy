@@ -50,6 +50,17 @@ const IDENTIFY_SYSTEM = [
   'dark, or partial photo is Low even if the plant is common.',
   "(3) Toxicity defaults safe: if toxicity to pets or children is unknown, return 'High'.",
   'Rate the toxicity of the identified species itself, not the genus in general, when known.',
+  '(4) Archetype: classify the plant into the SINGLE best-fitting care/silhouette bucket by its',
+  'growth habit, not by exact species — pick the closest even if the species is not named below:',
+  '• "broadleaf" — broad-leaf tropicals with large flat or split leaves (Monstera, philodendron,',
+  'peace lily, rubber plant, calathea, ZZ). • "trailing" — trailing/vining plants with long',
+  'draping or climbing stems (pothos, ivy, string-of-hearts, tradescantia, hoya). • "succulent" —',
+  'succulents and cacti: thick water-storing leaves/stems, rosettes, or spines (echeveria, aloe,',
+  'jade, haworthia, cactus). • "upright" — upright/architectural: tall stiff sword-like or',
+  'structural leaves (snake plant, dracaena, yucca). • "fern" — ferns and delicate feathery',
+  'foliage (Boston fern, maidenhair, asparagus fern). • "orchid" — epiphytes and orchids: broad',
+  'basal leaves with an arching flower spike, bromeliads, or air plants (Phalaenopsis, tillandsia).',
+  'Return archetype = null ONLY when the plant is Unknown or your confidence is Low.',
 ].join(' ');
 
 const DIAGNOSE_SYSTEM = [
@@ -81,6 +92,17 @@ const TAXONOMY_SCHEMA: Schema = {
   required: ['family', 'genus', 'species'],
 };
 
+/** Bud archetype buckets — each maps to one bundled sprite in the iOS app. */
+export const ARCHETYPES = [
+  'broadleaf',
+  'trailing',
+  'succulent',
+  'upright',
+  'fern',
+  'orchid',
+] as const;
+export type Archetype = (typeof ARCHETYPES)[number];
+
 const IDENTIFY_SCHEMA: Schema = {
   type: Type.OBJECT,
   properties: {
@@ -89,8 +111,9 @@ const IDENTIFY_SCHEMA: Schema = {
     toxicity: { type: Type.STRING, enum: ['High', 'Medium', 'Low', 'None'] },
     taxonomy: TAXONOMY_SCHEMA,
     confidence: { type: Type.STRING, enum: ['High', 'Medium', 'Low'] },
+    archetype: { type: Type.STRING, nullable: true, enum: [...ARCHETYPES] },
   },
-  required: ['species', 'common_name', 'toxicity', 'taxonomy', 'confidence'],
+  required: ['species', 'common_name', 'toxicity', 'taxonomy', 'confidence', 'archetype'],
 };
 
 const DIAGNOSE_SCHEMA: Schema = {
@@ -118,6 +141,7 @@ export interface IdentifyResult {
   toxicity: 'High' | 'Medium' | 'Low' | 'None';
   taxonomy: Taxonomy | null;
   confidence: 'High' | 'Medium' | 'Low';
+  archetype: Archetype | null;
 }
 
 /** Environment inputs collected by the app's "personalize care" form. */
@@ -183,7 +207,7 @@ export async function identify(imageBase64: string): Promise<IdentifyResult> {
     model,
     IDENTIFY_SYSTEM,
     IDENTIFY_SCHEMA,
-    'Identify and classify this plant (name + taxonomy + toxicity only).',
+    'Identify and classify this plant (name + taxonomy + toxicity + archetype only).',
     imageBase64,
   );
   return applyIdentifySafety(raw);

@@ -9,6 +9,8 @@ struct EarnTreesSection: View {
     let trees: TreeStatus
     let isSubscribed: Bool
     let onSubscribe: () -> Void
+    /// Jump to the invite-code controls (they live in Settings).
+    let onInvite: () -> Void
 
     private var careDone: Int { trees.careOnTime ?? 0 }
     private var streakDays: Int { trees.streak ?? 0 }
@@ -43,7 +45,8 @@ struct EarnTreesSection: View {
                 title: "Invite a friend",
                 detail: "When they subscribe, a tree is planted for each of you.",
                 progress: nil,
-                progressLabel: nil)
+                progressLabel: nil,
+                action: onInvite)
 
             EarnRow(
                 icon: "crown.fill",
@@ -87,6 +90,10 @@ private struct EarnRow: View {
                     if let progressLabel {
                         Text(progressLabel)
                             .font(.caption.weight(.medium))
+                            .foregroundStyle(Theme.Color.textSecondary)
+                    } else if action != nil {
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
                             .foregroundStyle(Theme.Color.textSecondary)
                     }
                 }

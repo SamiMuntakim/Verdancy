@@ -22,6 +22,26 @@ struct VerdancyApp: App {
                 ][args[i + 1]]
                 if let tab { _app.wrappedValue.selectedTab = tab }
             }
+            // Screenshot the premium state (bloomed buds, unlocked Light Meter) —
+            // mock mode is not-subscribed by default so both tiers are shootable.
+            if args.contains("-subscribed") {
+                _app.wrappedValue.entitlement.isSubscribed = true
+            }
+            // A healthy care streak for the Today screenshot (mock never checks in).
+            if args.contains("-signedIn") {
+                _app.wrappedValue.streak.seed(24)
+            }
+            // The Day-0 post-purchase bloom celebration (bud blooms + trees card).
+            if args.contains("-bloom") {
+                _app.wrappedValue.entitlement.isSubscribed = true
+                _app.wrappedValue.lastPurchasedPlan = .annual
+                _app.wrappedValue.pendingBloom = true
+            }
+            // The Day-7 "trees planted" celebration is triggered from RootView once
+            // the app has settled (presenting it during launch shifts the cover).
+            if args.contains("-treesPlanted") {
+                _app.wrappedValue.entitlement.isSubscribed = true
+            }
         }
         #endif
     }

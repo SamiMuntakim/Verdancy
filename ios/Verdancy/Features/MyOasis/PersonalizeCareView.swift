@@ -15,6 +15,10 @@ struct PersonalizeCareView: View {
     @State private var phase: Phase = .form
     @State private var showPaywall = false
     @State private var error: String?
+    /// Whether we've re-verified entitlement with RevenueCat since this gate opened.
+    /// Guards against a stale local flag wrongly routing a real subscriber to the
+    /// paywall (e.g. after a restore or a purchase made on another device).
+    @State private var entitlementChecked = false
 
     private enum Phase: Equatable {
         case form, generating, result(CarePlan)
@@ -27,6 +31,12 @@ struct PersonalizeCareView: View {
             .navigationTitle("Personalize care")
             .navigationBarTitleDisplayMode(.inline)
             .sheet(isPresented: $showPaywall) { PaywallView() }
+            // Trust RevenueCat over the cached flag before gating: a subscriber whose
+            // local `isSubscribed` is stale must reach the form, not the paywall.
+            .task {
+                if !canGenerateForFree { await app.entitlement.refresh() }
+                entitlementChecked = true
+            }
     }
 
     @ViewBuilder
@@ -37,6 +47,10 @@ struct PersonalizeCareView: View {
             // that dead-ends. Show what the plan looks like, locked, and offer it.
             if canGenerateForFree {
                 formView
+            } else if !entitlementChecked {
+                // Briefly re-verifying entitlement; don't flash the paywall gate at a
+                // subscriber whose cached flag just hasn't refreshed yet.
+                entitlementCheckView
             } else {
                 carePlanTeaser
             }
@@ -51,6 +65,16 @@ struct PersonalizeCareView: View {
         case let .result(plan):
             resultView(plan)
         }
+    }
+
+    /// Shown for the moment between opening the gate and confirming entitlement, so a
+    /// subscriber with a stale cached flag never sees the paywall teaser flash by.
+    private var entitlementCheckView: some View {
+        VStack(spacing: Theme.Space.m) {
+            ProgressView().tint(Theme.Color.leaf)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.Color.background)
     }
 
     // MARK: - Free teaser

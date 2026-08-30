@@ -49,21 +49,28 @@ describe('applyIdentifySafety (invariant #8)', () => {
     toxicity: 'Low',
     taxonomy: { family: 'Araceae', genus: 'Monstera', species: 'deliciosa', cultivar: null },
     confidence: 'High',
+    archetype: 'broadleaf',
   };
 
   test('high-confidence result passes through unchanged', () => {
     expect(applyIdentifySafety(base)).toEqual(base);
   });
 
-  test('low confidence → Unknown Plant, null taxonomy, High toxicity', () => {
+  test('low confidence → Unknown Plant, null taxonomy, High toxicity, null archetype', () => {
     const out = applyIdentifySafety({ ...base, confidence: 'Low' });
     expect(out.common_name).toBe('Unknown Plant');
     expect(out.taxonomy).toBeNull();
     expect(out.toxicity).toBe('High');
+    expect(out.archetype).toBeNull();
   });
 
   test('unknown/invalid toxicity defaults to High', () => {
     const out = applyIdentifySafety({ ...base, toxicity: 'Unsure' as unknown as 'High' });
     expect(out.toxicity).toBe('High');
+  });
+
+  test('archetype outside the known set is dropped to null', () => {
+    const out = applyIdentifySafety({ ...base, archetype: 'tree' as unknown as 'broadleaf' });
+    expect(out.archetype).toBeNull();
   });
 });

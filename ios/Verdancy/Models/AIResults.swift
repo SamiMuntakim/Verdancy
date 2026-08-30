@@ -9,6 +9,9 @@ struct CareCard: Codable, Hashable {
     let toxicity: String
     let taxonomy: Taxonomy?
     let confidence: String
+    /// Bud archetype bucket (broadleaf/trailing/succulent/upright/fern/orchid), or
+    /// nil when the plant is unidentified. Drives the bundled Plant Bud sprite.
+    let archetype: String?
 
     /// Honor server caution (iOS-PRD §6): low confidence or "Unknown Plant".
     var isUnidentified: Bool {

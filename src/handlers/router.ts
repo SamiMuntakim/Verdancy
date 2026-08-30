@@ -39,7 +39,14 @@ import {
 } from '../lib/dynamo';
 import { presignPut, presignGet, deleteObjects, deleteByPrefix } from '../lib/s3';
 import { deleteCognitoUser } from '../lib/cognito';
-import { identify, diagnose, generateCarePlan, type CarePlanInputs } from '../lib/gemini';
+import {
+  identify,
+  diagnose,
+  generateCarePlan,
+  ARCHETYPES,
+  type Archetype,
+  type CarePlanInputs,
+} from '../lib/gemini';
 import { grantTrees } from '../lib/planting';
 import { fetchCommunityForest } from '../lib/treenation';
 
@@ -52,6 +59,10 @@ const STREAK_TREE_INTERVAL = () => intEnv('STREAK_TREE_INTERVAL', 30);
 const MAX_IMAGE_BASE64_CHARS = 7_000_000;
 
 const asString = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
+
+/** Whitelist a client-supplied bud archetype against the known set; else null. */
+const asArchetype = (v: unknown): Archetype | null =>
+  typeof v === 'string' && (ARCHETYPES as readonly string[]).includes(v) ? (v as Archetype) : null;
 
 /** A cadence must be a positive integer, or null to clear the schedule. */
 function cadenceOrNull(v: unknown): number | null {
@@ -167,6 +178,7 @@ async function handleCreatePlant(sub: string, event: APIGatewayProxyEventV2WithJ
     toxicity: asString(body.toxicity) ?? 'High',
     taxonomy: (body.taxonomy as Record<string, unknown> | undefined) ?? null,
     confidence: asString(body.confidence) ?? null,
+    archetype: asArchetype(body.archetype),
     care: {
       water: { cadence_days: null, last_done_at: null },
       fertilize: { cadence_days: null, last_done_at: null },

@@ -113,8 +113,7 @@ struct CareCardView: View {
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
-            .background(.ultraThinMaterial, in: Capsule())
-            .overlay(Capsule().strokeBorder(.white.opacity(jpeg != nil ? 0.25 : 0), lineWidth: 1))
+            .liquidGlass(in: Capsule())
         }
     }
 
@@ -213,38 +212,129 @@ struct CareCardView: View {
     }
 }
 
-/// Diagnose result — the triage card (iOS-PRD §3.2).
+/// Diagnose result — the triage card (iOS-PRD §3.2). Mirrors `CareCardView`: the
+/// user's own photo is the card's header, with the issue and severity read straight
+/// off it, so identify and diagnose share one visual language. Pass `jpeg` for the
+/// photo hero; without it the card falls back to a text header (previews).
 struct DiagnosisCardView: View {
     let card: DiagnosisCard
+    var jpeg: Data? = nil
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Theme.Space.m) {
-            HStack {
-                Text(card.issue).font(.title3.weight(.semibold))
-                Spacer()
-                SeverityChip(severity: card.severityLevel)
-            }
-            Text(card.likelyCause)
-                .font(.subheadline)
-                .foregroundStyle(Theme.Color.textSecondary)
+        VStack(alignment: .leading, spacing: 0) {
+            header
+            VStack(alignment: .leading, spacing: Theme.Space.m) {
+                Text(card.likelyCause)
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.Color.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
 
-            VStack(alignment: .leading, spacing: Theme.Space.s) {
-                ForEach(Array(card.steps.enumerated()), id: \.offset) { index, step in
-                    HStack(alignment: .top, spacing: Theme.Space.s) {
-                        Text("\(index + 1)")
-                            .font(.caption.weight(.bold))
-                            .foregroundStyle(.white)
-                            .frame(width: 22, height: 22)
-                            .background(Circle().fill(Theme.Color.leaf))
-                        Text(step).font(.subheadline)
+                VStack(alignment: .leading, spacing: Theme.Space.s) {
+                    ForEach(Array(card.steps.enumerated()), id: \.offset) { index, step in
+                        HStack(alignment: .top, spacing: Theme.Space.s) {
+                            Text("\(index + 1)")
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(.white)
+                                .frame(width: 22, height: 22)
+                                .background(Circle().fill(Theme.Color.leaf))
+                            Text(step).font(.subheadline)
+                        }
                     }
                 }
+                ConfidenceBadge(confidence: card.confidence)
             }
-            ConfidenceBadge(confidence: card.confidence)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(Theme.Space.l)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.Color.surface)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
+                .strokeBorder(Theme.Color.separator.opacity(0.7), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.06), radius: 16, x: 0, y: 6)
+    }
+
+    // MARK: Header
+
+    @ViewBuilder
+    private var header: some View {
+        if let jpeg, let image = UIImage(data: jpeg) {
+            photoHeader(image)
+        } else {
+            textHeader
+        }
+    }
+
+    /// Full-bleed photo with a bottom scrim, the issue reversed out over it, and a
+    /// frosted severity pill floated top-trailing — the "here's what's wrong, in
+    /// *your* photo" moment. Shorter than the identify hero (210 vs 260) to keep the
+    /// numbered steps in view.
+    private func photoHeader(_ image: UIImage) -> some View {
+        Image(uiImage: image)
+            .resizable()
+            .scaledToFill()
+            .frame(maxWidth: .infinity)
+            .frame(height: 210)
+            .clipped()
+            .overlay(alignment: .bottom) {
+                LinearGradient(
+                    colors: [.clear, .black.opacity(0.15), .black.opacity(0.6)],
+                    startPoint: .top, endPoint: .bottom
+                )
+                .frame(height: 150)
+            }
+            .overlay(alignment: .topTrailing) {
+                severityPill.padding(Theme.Space.m)
+            }
+            .overlay(alignment: .bottomLeading) {
+                issueBlock(onPhoto: true).padding(Theme.Space.l)
+            }
+            .clipShape(
+                UnevenRoundedRectangle(
+                    topLeadingRadius: Theme.Radius.card,
+                    topTrailingRadius: Theme.Radius.card, style: .continuous))
+    }
+
+    private var textHeader: some View {
+        HStack(alignment: .top) {
+            issueBlock(onPhoto: false)
+            Spacer()
+            SeverityChip(severity: card.severityLevel)
+        }
         .padding(Theme.Space.l)
-        .card()
+    }
+
+    private func issueBlock(onPhoto: Bool) -> some View {
+        Text(card.issue)
+            .font(.title2.weight(.bold))
+            .foregroundStyle(onPhoto ? .white : Theme.Color.textPrimary)
+            .fixedSize(horizontal: false, vertical: true)
+            .shadow(color: onPhoto ? .black.opacity(0.35) : .clear, radius: 8, y: 1)
+    }
+
+    /// Frosted so it reads on any photo — a severity dot + label, matching the
+    /// identify card's confidence pill.
+    private var severityPill: some View {
+        HStack(spacing: 5) {
+            Circle().fill(severityColor).frame(width: 7, height: 7)
+            Text(card.severityLevel?.rawValue ?? "—")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(jpeg != nil ? .white : Theme.Color.textPrimary)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .liquidGlass(in: Capsule())
+    }
+
+    private var severityColor: Color {
+        switch card.severityLevel {
+        case .critical: return Theme.Color.danger
+        case .moderate: return Theme.Color.warning
+        case .minor, .healthy: return Theme.Color.leaf
+        case nil: return Theme.Color.textSecondary
+        }
     }
 }
 

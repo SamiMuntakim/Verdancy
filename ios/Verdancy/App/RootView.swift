@@ -50,6 +50,16 @@ struct RootView: View {
             }
         }
         .animation(.spring(response: 0.5, dampingFraction: 0.8), value: app.treeCelebration)
+        #if DEBUG
+        // Screenshot: present the Day-7 celebration once the app has settled, so the
+        // full-screen cover isn't laid out mid-launch (which shifts it).
+        .task {
+            guard AppConfig.useMockAuth,
+                  CommandLine.arguments.contains("-treesPlanted") else { return }
+            try? await Task.sleep(for: .seconds(1.5))
+            app.pendingTreesPlanted = TreesPlantedCelebration(count: 10, total: 10)
+        }
+        #endif
     }
 }
 
@@ -58,17 +68,10 @@ struct LaunchView: View {
         ZStack {
             Theme.Color.background.ignoresSafeArea()
             VStack(spacing: Theme.Space.l) {
-                Image(systemName: "leaf.fill")
-                    .font(.system(size: 40, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 88, height: 88)
-                    .background(
-                        Theme.leafGradient,
-                        in: RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    )
-                    .shadow(color: Theme.Color.leaf.opacity(0.3), radius: 18, y: 8)
+                BrandMark(size: 92)
                 Text("Verdancy")
                     .font(.title.weight(.bold))
+                    .kerning(0.2)
                     .foregroundStyle(Theme.Color.textPrimary)
                 ProgressView().tint(Theme.Color.leaf)
             }

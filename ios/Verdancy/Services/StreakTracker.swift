@@ -61,6 +61,17 @@ final class StreakTracker {
         }
     }
 
+    #if DEBUG
+    /// Screenshot/demo only: force a healthy streak that the local `refresh` won't
+    /// reset (stamps today as server-synced). Never compiled into release.
+    func seed(_ value: Int) {
+        let today = Calendar.current.startOfDay(for: Date())
+        current = value
+        UserDefaults.standard.set(today, forKey: serverDayKey)
+        save(count: value, day: today)
+    }
+    #endif
+
     private func save(count: Int, day: Date?) {
         UserDefaults.standard.set(count, forKey: countKey)
         if let day {

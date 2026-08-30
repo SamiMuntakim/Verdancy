@@ -16,6 +16,10 @@ enum Theme {
         static let separator = dynamicColor(light: 0xE4EADD, dark: 0x2A3124)
         static let danger = dynamicColor(light: 0xC0392B, dark: 0xE57368)
         static let warning = dynamicColor(light: 0xCB8A14, dark: 0xF0C860)
+        /// Water actions — a muted, palette-aware blue (never raw system `.blue`).
+        static let water = dynamicColor(light: 0x3E7CA8, dark: 0x6FA8D0)
+        /// Direct-sun end of the light-meter spectrum — a warm gold distinct from `warning`.
+        static let sun = dynamicColor(light: 0xE0912F, dark: 0xF3B85C)
     }
 
     enum Radius {
@@ -75,6 +79,19 @@ struct CardBackground: ViewModifier {
 
 extension View {
     func card() -> some View { modifier(CardBackground()) }
+
+    /// iOS 26 Liquid Glass on a shape, with a frosted-material fallback for iOS 17–25.
+    /// The one place floating chrome (badges over photos, camera read-outs) gets its
+    /// translucency — so the whole app speaks the current platform's material, not a
+    /// 2023-era blur.
+    @ViewBuilder
+    func liquidGlass(in shape: some Shape) -> some View {
+        if #available(iOS 26.0, *) {
+            self.glassEffect(.regular, in: shape)
+        } else {
+            self.background(.ultraThinMaterial, in: shape)
+        }
+    }
 }
 
 /// The one green hero CTA per screen: full-width gradient fill with pressed feedback.
@@ -150,6 +167,71 @@ struct Shimmer: ViewModifier {
 
 extension View {
     func shimmer() -> some View { modifier(Shimmer()) }
+}
+
+/// The leaf-gradient "impact strip": evenly divided stat columns on the house
+/// gradient, with a faint canopy watermark and one soft shadow. Both Trees panes
+/// (Yours + Community) use it so their headline figures read as one system —
+/// short, balanced, and grandiose without towering over the cards below.
+struct HeroStatStrip: View {
+    struct Stat: Identifiable {
+        let id = UUID()
+        var value: String
+        var label: String
+        var emphasized: Bool = false
+    }
+
+    let stats: [Stat]
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(Array(stats.enumerated()), id: \.element.id) { index, stat in
+                if index > 0 {
+                    Rectangle().fill(.white.opacity(0.22)).frame(width: 1, height: 34)
+                }
+                column(stat)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, Space.s)
+        .padding(.horizontal, Space.s)
+        .background {
+            ZStack(alignment: .trailing) {
+                Theme.leafGradient
+                Image(systemName: "tree.fill")
+                    .font(.system(size: 110))
+                    .foregroundStyle(.white.opacity(0.08))
+                    .rotationEffect(.degrees(-6))
+                    .offset(x: 26)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+        .shadow(color: Theme.Color.leafDeep.opacity(0.25), radius: 14, x: 0, y: 6)
+    }
+
+    private func column(_ stat: Stat) -> some View {
+        VStack(spacing: 2) {
+            Text(stat.value)
+                .font(.system(size: stat.emphasized ? 34 : 24,
+                              weight: stat.emphasized ? .heavy : .bold,
+                              design: .rounded).monospacedDigit())
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.5)
+                .contentTransition(.numericText())
+            Text(stat.label)
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(.white.opacity(0.85))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, Space.xs)
+    }
+
+    // Namespaced spacing/radius shorthands so this component reads like the rest.
+    private typealias Space = Theme.Space
+    private typealias Radius = Theme.Radius
 }
 
 /// An SF Symbol in a soft tinted circle — the standard hero / empty-state glyph.

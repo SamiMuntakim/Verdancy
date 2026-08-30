@@ -178,6 +178,7 @@ struct CreatePlantRequest: Encodable {
     let toxicity: String?
     let taxonomy: Taxonomy?
     let confidence: String?
+    let archetype: String?
 
     enum CodingKeys: String, CodingKey {
         case imageRef = "image_ref"
@@ -187,6 +188,7 @@ struct CreatePlantRequest: Encodable {
         case toxicity
         case taxonomy
         case confidence
+        case archetype
     }
 
     /// Build a save request from an identify result. Identify carries identity
@@ -200,6 +202,7 @@ struct CreatePlantRequest: Encodable {
         self.toxicity = card.toxicity
         self.taxonomy = card.taxonomy
         self.confidence = card.confidence
+        self.archetype = card.archetype
     }
 }
 

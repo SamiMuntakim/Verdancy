@@ -180,6 +180,20 @@ struct OnboardingView: View {
             }
         }
         .onAppear {
+            #if DEBUG
+            // Screenshot: jump straight to the personalized plan reveal with a
+            // representative set of answers (mock mode only).
+            if AppConfig.useMockAuth, CommandLine.arguments.contains("-onboardingReveal") {
+                answers = ["plantCount": "6_10", "experience": "some",
+                           "light": "medium", "struggle": "overwater"]
+                petsAnswer = true
+                PetContext.hasPets = true
+                OnboardingProfile.reviewPrompted = true // don't pop the rating dialog mid-capture
+                page = revealPage
+                Analytics.log("onboarding_viewed")
+                return
+            }
+            #endif
             // Someone who already onboarded on this device is here to sign back in
             // (they signed out, or their session expired) — drop them on the auth
             // page instead of replaying the intro and quiz, rehydrating their old
@@ -270,36 +284,27 @@ struct OnboardingView: View {
     // on small screens, then pill → headline → lede; same tokens both themes)
 
     private var hookPage: some View {
-        VStack(spacing: Theme.Space.l) {
+        VStack(spacing: Theme.Space.xl) {
+            Spacer(minLength: Theme.Space.l)
+            // Quiet masthead — the first place the name and mark appear, above the
+            // website hero it's recreating.
+            BrandLockup()
             HeroScanCard()
             VStack(spacing: Theme.Space.m) {
-                // pill-badge: green dot in a tinted ring + the tree fact.
-                HStack(spacing: Theme.Space.s) {
-                    Circle()
-                        .fill(Theme.Color.leaf)
-                        .frame(width: 8, height: 8)
-                        .background(Circle().fill(Theme.Color.leaf.opacity(0.12)).frame(width: 16, height: 16))
-                    Text("Real trees, publicly counted")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(Theme.Color.textSecondary)
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 7)
-                .background(Theme.Color.surface, in: Capsule())
-                .overlay(Capsule().strokeBorder(Theme.Color.separator, lineWidth: 1))
+                TreesLivePill()
 
                 (Text("You grow plants.\n").foregroundStyle(Theme.Color.textPrimary)
                  + Text("We grow forests.").foregroundStyle(Theme.leafGradient))
                     .font(.largeTitle.weight(.bold))
                     .multilineTextAlignment(.center)
-
-                Text("Point your camera at any plant for its name, pet-safety, and care in seconds. Keep them alive, and we plant **10 real trees** with \(AppConfig.plantingPartner).")
-                    .font(.subheadline)
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(Theme.Color.textSecondary)
-                    .padding(.horizontal, Theme.Space.s)
             }
+            Spacer(minLength: Theme.Space.l)
         }
+        // Center the hero in the scroll viewport so it reads as a poster, not a
+        // top-anchored column with dead space above the footer. Cancel the scroll
+        // content's top padding so "fill the viewport" means the true viewport.
+        .padding(.top, -Theme.Space.xl)
+        .containerRelativeFrame(.vertical)
     }
 
     /// A single-select quiz question: eyebrow, title, subtitle, then a vertical list
@@ -558,6 +563,10 @@ struct OnboardingView: View {
     /// they just watched being built. Buttons live in `footer`.
     private var planSaveHero: some View {
         VStack(alignment: .leading, spacing: Theme.Space.l) {
+            // Returning users (signed out) land straight here, so this is where they
+            // meet the brand — a quiet lockup above the sign-up.
+            BrandLockup()
+                .padding(.bottom, Theme.Space.s)
             ZStack {
                 Circle().fill(Theme.Color.leaf.opacity(0.14)).frame(width: 72, height: 72)
                 Image(systemName: "bookmark.fill")
@@ -725,10 +734,51 @@ struct OnboardingView: View {
 /// art, corner brackets and a glowing sweep line, then the identification result
 /// panel — plus the two floating badges. Values are lifted from the site source
 /// (Verdancy-Web `index.astro` / `verdancy.css`), not approximated.
+/// The trust badge above the headline: a live-pulsing dot + a small tree glyph on a
+/// leaf-tinted capsule. Signals that the tree count is real and publicly verifiable,
+/// not a marketing figure.
+private struct TreesLivePill: View {
+    @State private var pulse = false
+
+    var body: some View {
+        HStack(spacing: Theme.Space.s) {
+            // "live" dot: a solid core with an expanding, fading ring behind it.
+            ZStack {
+                Circle()
+                    .fill(Theme.Color.leaf.opacity(0.35))
+                    .frame(width: 8, height: 8)
+                    .scaleEffect(pulse ? 2.6 : 1)
+                    .opacity(pulse ? 0 : 0.9)
+                Circle()
+                    .fill(Theme.Color.leaf)
+                    .frame(width: 8, height: 8)
+            }
+            .frame(width: 20, height: 20)
+
+            Text("Real trees, publicly counted")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(Theme.Color.leaf)
+
+            Image(systemName: "tree.fill")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(Theme.Color.leaf)
+        }
+        .padding(.leading, 8)
+        .padding(.trailing, 14)
+        .padding(.vertical, 7)
+        .background(Theme.Color.leaf.opacity(0.10), in: Capsule())
+        .overlay(Capsule().strokeBorder(Theme.Color.leaf.opacity(0.28), lineWidth: 1))
+        .onAppear {
+            withAnimation(.easeOut(duration: 1.8).repeatForever(autoreverses: false)) {
+                pulse = true
+            }
+        }
+    }
+}
+
 private struct HeroScanCard: View {
     @Environment(\.colorScheme) private var scheme
     @State private var sweepDown = false
-    @State private var bob = false
 
     /// `.scan-photo` background: #EAF6EC→#cfe9d4 light, #1f2a1e→#16201a dark.
     private var photoGradient: LinearGradient {
@@ -756,26 +806,12 @@ private struct HeroScanCard: View {
                 RoundedRectangle(cornerRadius: 28, style: .continuous)
                     .strokeBorder(Theme.Color.separator, lineWidth: 1)
             )
-            .shadow(color: Color(red: 0.173, green: 0.361, blue: 0.2).opacity(0.16),
-                    radius: 25, y: 9)
+            .shadow(color: Theme.Color.leafDeep.opacity(0.16), radius: 25, y: 9)
             .padding(.horizontal, Theme.Space.xl)
-        }
-        .overlay(alignment: .topLeading) {
-            FloatBadge(emoji: "🌱", title: "Buddy leveled up", subtitle: "Orbi is blooming")
-                .offset(x: 2, y: 34)
-                .offset(y: bob ? -4 : 4)
-        }
-        .overlay(alignment: .bottomTrailing) {
-            FloatBadge(emoji: "🔥", title: "12-day streak", subtitle: "Nice work")
-                .offset(x: 6, y: -8)
-                .offset(y: bob ? 4 : -4)
         }
         .onAppear {
             withAnimation(.easeInOut(duration: 3).repeatForever(autoreverses: true)) {
                 sweepDown = true
-            }
-            withAnimation(.easeInOut(duration: 4).repeatForever(autoreverses: true)) {
-                bob = true
             }
         }
     }
@@ -856,33 +892,6 @@ private struct HeroScanCard: View {
              + Text(rest).foregroundStyle(Theme.Color.textSecondary))
                 .font(.system(size: 13.5))
         }
-    }
-}
-
-/// `.float-badge`: a small floating surface card with an emoji and two lines.
-private struct FloatBadge: View {
-    let emoji: String
-    let title: String
-    let subtitle: String
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Text(emoji).font(.system(size: 20))
-            VStack(alignment: .leading, spacing: 1) {
-                Text(title).font(.system(size: 13, weight: .bold))
-                Text(subtitle)
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(Theme.Color.textSecondary)
-            }
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(Theme.Color.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(Theme.Color.separator, lineWidth: 1)
-        )
-        .shadow(color: Color(red: 0.173, green: 0.361, blue: 0.2).opacity(0.16), radius: 25, y: 9)
     }
 }
 

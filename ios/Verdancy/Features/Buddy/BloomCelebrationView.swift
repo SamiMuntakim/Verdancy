@@ -100,7 +100,7 @@ struct BloomCelebrationView: View {
     }
 
     private var bundledBloom: some View {
-        Image(plant.map { BudSprites.bloomAsset(for: $0.species) } ?? BudSprites.generic)
+        Image(plant.map { BudSprites.bloomAsset(forArchetype: $0.archetype, species: $0.species) } ?? BudSprites.generic)
             .resizable().interpolation(.none).scaledToFit()
     }
 }

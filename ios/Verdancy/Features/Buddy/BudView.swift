@@ -48,7 +48,7 @@ struct BudView: View {
                         .font(.system(size: size * 0.18, weight: .semibold))
                         .foregroundStyle(.white)
                         .padding(size * 0.07)
-                        .background(Circle().fill(.blue))
+                        .background(Circle().fill(Theme.Color.water))
                 }
             }
         } else {
@@ -82,7 +82,7 @@ struct BudView: View {
     }
 
     private var bundledBloom: some View {
-        sprite(BudSprites.bloomAsset(for: plant.species))
+        sprite(BudSprites.bloomAsset(forArchetype: plant.archetype, species: plant.species))
     }
 
     private func sprite(_ name: String) -> some View {

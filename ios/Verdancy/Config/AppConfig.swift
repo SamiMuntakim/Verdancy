@@ -73,6 +73,9 @@ enum AppConfig {
     static let privacyURL = URL(string: "\(siteBaseURL)/privacy.html")!
     static let termsURL = URL(string: "\(siteBaseURL)/terms.html")!
     static let supportURL = URL(string: "\(siteBaseURL)/support.html")!
-    static let treeCounterURL = URL(string: "\(siteBaseURL)/trees.html")!
+    /// The paywall's "see the live tree counter" opens our public Tree-Nation
+    /// profile directly — the partner's own page is the most credible, verifiable
+    /// proof (slug matches the backend's `TREENATION_PROFILE_SLUG`, default `verdancy`).
+    static let treeCounterURL = URL(string: "https://tree-nation.com/profile/verdancy")!
 
 }

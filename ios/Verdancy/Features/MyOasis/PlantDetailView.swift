@@ -18,12 +18,16 @@ struct PlantDetailView: View {
     }
 
     var body: some View {
+        ScrollViewReader { proxy in
         ScrollView {
             VStack(alignment: .leading, spacing: Theme.Space.l) {
                 heroHeader
 
                 Group {
                     careContent
+                    // Screenshot anchor: scroll here to reveal the full care plan
+                    // (Water · Light · Nutrients) with just a sliver of the hero.
+                    Color.clear.frame(height: 0).id("careBottom")
                     if hasFacts { factsSection }
                     healthSection
 
@@ -75,6 +79,15 @@ struct PlantDetailView: View {
             }
         }
         .coordinateSpace(name: "detailScroll")
+        #if DEBUG
+        .onAppear {
+            guard AppConfig.useMockAuth,
+                  CommandLine.arguments.contains("-plantScrolled") else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                withAnimation { proxy.scrollTo("careBottom", anchor: .bottom) }
+            }
+        }
+        #endif
         .background(Theme.Color.background)
         .navigationTitle(current.displayName)
         .navigationBarTitleDisplayMode(.inline)
@@ -107,6 +120,7 @@ struct PlantDetailView: View {
             }
         } message: {
             Text("This removes the plant, its photos, and its images.")
+        }
         }
     }
 

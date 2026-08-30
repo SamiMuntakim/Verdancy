@@ -1,4 +1,4 @@
-import type { IdentifyResult } from './gemini';
+import { ARCHETYPES, type IdentifyResult } from './gemini';
 
 /**
  * Enforce the plant-safety invariants server-side, regardless of what the model
@@ -15,11 +15,15 @@ export function applyIdentifySafety(r: IdentifyResult): IdentifyResult {
   const validToxicity = ['High', 'Medium', 'Low', 'None'];
   if (!validToxicity.includes(out.toxicity)) out.toxicity = 'High';
 
+  // Drop any archetype the model invented outside the known bucket set.
+  if (out.archetype != null && !ARCHETYPES.includes(out.archetype)) out.archetype = null;
+
   const unidentified = out.confidence === 'Low' || !out.common_name;
   if (unidentified) {
     out.common_name = 'Unknown Plant';
     out.taxonomy = null;
     out.toxicity = 'High';
+    out.archetype = null; // no bud archetype for an unidentified plant
   }
   return out;
 }

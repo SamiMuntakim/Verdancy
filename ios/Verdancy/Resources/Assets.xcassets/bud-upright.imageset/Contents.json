@@ -1,0 +1,12 @@
+{
+  "images" : [
+    {
+      "filename" : "bud-upright.png",
+      "idiom" : "universal"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}

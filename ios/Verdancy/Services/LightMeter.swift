@@ -31,6 +31,17 @@ enum LightLevel: Int, CaseIterable {
         }
     }
 
+    /// Compact label for the light-meter gauge (full titles are too wide side-by-side).
+    var shortTitle: String {
+        switch self {
+        case .unknown: return "—"
+        case .low: return "Low"
+        case .medium: return "Medium"
+        case .brightIndirect: return "Bright"
+        case .direct: return "Direct"
+        }
+    }
+
     var advice: String {
         switch self {
         case .unknown: return "Point the camera at the spot where the plant lives."
@@ -49,9 +60,9 @@ enum LightLevel: Int, CaseIterable {
         switch self {
         case .unknown: return Theme.Color.textSecondary
         case .low: return Theme.Color.terracotta
-        case .medium: return .orange
+        case .medium: return Theme.Color.warning
         case .brightIndirect: return Theme.Color.leaf
-        case .direct: return .yellow
+        case .direct: return Theme.Color.sun
         }
     }
 

@@ -5,14 +5,13 @@ import SwiftUI
 struct TodayView: View {
     @Environment(AppModel.self) private var app
 
-    @State private var showSettings = false
-
     /// Server-granted trees only — never a local guess off `isSubscribed`.
     private var totalTrees: Int {
         app.garden.trees.treesPledged
     }
 
     var body: some View {
+        @Bindable var app = app
         NavigationStack {
             List {
                 Section {
@@ -71,14 +70,16 @@ struct TodayView: View {
                 // the platform-standard home for it, which frees the tab slot for
                 // Trees (something users actually come back to).
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { showSettings = true } label: {
+                    Button { app.openSettings() } label: {
                         Image(systemName: "gearshape")
                             .foregroundStyle(Theme.Color.textSecondary)
                     }
                     .accessibilityLabel("Settings")
                 }
             }
-            .sheet(isPresented: $showSettings) { SettingsView().environment(app) }
+            .sheet(isPresented: $app.showSettings) {
+                SettingsView(focus: app.settingsFocus).environment(app)
+            }
             .refreshable { await app.garden.refresh() }
         }
     }
@@ -117,6 +118,7 @@ struct GreetingHeader: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, Theme.Space.l)
         .padding(.vertical, Theme.Space.s)
     }
 }
