@@ -206,6 +206,9 @@ final class AppModel {
     }
 
     func bootstrap() async {
+        #if DEBUG
+        await ScreenshotSupport.seedImageCache() // mock-mode marketing captures only
+        #endif
         garden.hydrateFromSnapshot()
         await entitlement.bootstrap()
         if await auth.isSignedIn() {
