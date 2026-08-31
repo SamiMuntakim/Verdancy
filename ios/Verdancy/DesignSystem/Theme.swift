@@ -20,6 +20,17 @@ enum Theme {
         static let water = dynamicColor(light: 0x3E7CA8, dark: 0x6FA8D0)
         /// Direct-sun end of the light-meter spectrum — a warm gold distinct from `warning`.
         static let sun = dynamicColor(light: 0xE0912F, dark: 0xF3B85C)
+        /// Deep ends of the two non-green gradients. They exist only as gradient
+        /// stops — never reach for them as a standalone fill.
+        static let waterDeep = dynamicColor(light: 0x2A5F87, dark: 0x477FA8)
+        static let sunDeep = dynamicColor(light: 0xC26A22, dark: 0xD9903F)
+        /// Petal pink, for the bloom celebration only.
+        static let blossom = dynamicColor(light: 0xD4649B, dark: 0xE590B8)
+        /// Ink for text on a filled `warning` chip. Fixed in both modes on purpose,
+        /// exactly like the `.white` we put on the dark gradients: what it has to
+        /// contrast with is the amber underneath it, not the page. (White on amber
+        /// is ~2.9:1 in light mode and unreadable on the brighter dark-mode amber.)
+        static let onWarning = staticColor(0x3D2E07)
     }
 
     enum Radius {
@@ -43,7 +54,49 @@ enum Theme {
         startPoint: .topLeading,
         endPoint: .bottomTrailing
     )
+    /// The deeper, cooler forest fill — for filled panels that sit near the one
+    /// leaf-gradient CTA and would otherwise read as the same block.
+    static let forestGradient = LinearGradient(
+        colors: [Color.leafDeep, Color.leaf],
+        startPoint: .bottomLeading,
+        endPoint: .topTrailing
+    )
+    static let waterGradient = LinearGradient(
+        colors: [Color.water, Color.waterDeep],
+        startPoint: .topLeading,
+        endPoint: .bottomTrailing
+    )
+    static let sunGradient = LinearGradient(
+        colors: [Color.sun, Color.sunDeep],
+        startPoint: .topLeading,
+        endPoint: .bottomTrailing
+    )
+    /// The streak's warm fill — gold into terracotta.
+    static let emberGradient = LinearGradient(
+        colors: [Color.sun, Color.terracotta],
+        startPoint: .topLeading,
+        endPoint: .bottomTrailing
+    )
+
+    /// The color identity of one domain: a flat tint for text, pills and hairlines,
+    /// and the matching gradient for filled glyphs and panels. Water is the same
+    /// blue on a care card, a due badge, and a glyph tile because all three read
+    /// their color from here — the alternative is the slow drift to six blues.
+    struct Tone {
+        let tint: SwiftUI.Color
+        let gradient: LinearGradient
+
+        static let water = Tone(tint: Color.water, gradient: waterGradient)
+        static let sun = Tone(tint: Color.sun, gradient: sunGradient)
+        static let leaf = Tone(tint: Color.leaf, gradient: leafGradient)
+        static let forest = Tone(tint: Color.leafDeep, gradient: forestGradient)
+        static let ember = Tone(tint: Color.terracotta, gradient: emberGradient)
+    }
 }
+
+/// A color that does not follow the interface style — for ink that has to
+/// contrast with a fill rather than with the page.
+private func staticColor(_ hex: Int) -> Color { Color(uiColor: UIColor(hex: hex)) }
 
 /// Dynamic light/dark color from two hex values.
 private func dynamicColor(light: Int, dark: Int) -> Color {
@@ -64,21 +117,43 @@ extension UIColor {
 }
 
 /// A soft, rounded surface used across cards: hairline stroke + a low, wide shadow.
+///
+/// `tone` tints the fill, the hairline and the shadow, which is how the three care
+/// cards read as Water / Light / Nutrients from across the room instead of as three
+/// identical white rectangles. Untinted (`nil`) is the neutral default everywhere else.
 struct CardBackground: ViewModifier {
+    var tone: Theme.Tone?
+
+    private var shape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
+    }
+
     func body(content: Content) -> some View {
         content
-            .background(Theme.Color.surface)
-            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
+            .background {
+                ZStack {
+                    Theme.Color.surface
+                    if let tone { tone.tint.opacity(0.08) }
+                }
+            }
+            .clipShape(shape)
             .overlay(
-                RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
-                    .strokeBorder(Theme.Color.separator.opacity(0.7), lineWidth: 1)
+                shape.strokeBorder(
+                    (tone?.tint.opacity(0.22) ?? Theme.Color.separator.opacity(0.7)),
+                    lineWidth: 1)
             )
-            .shadow(color: .black.opacity(0.04), radius: 14, x: 0, y: 4)
+            .elevated(tint: tone?.tint)
     }
 }
 
 extension View {
-    func card() -> some View { modifier(CardBackground()) }
+    func card(tone: Theme.Tone? = nil) -> some View { modifier(CardBackground(tone: tone)) }
+
+    /// The app's single elevation. One radius, one offset — a tint only shifts its
+    /// hue so a colored surface doesn't cast a grey shadow. Never decoration.
+    func elevated(tint: Color? = nil) -> some View {
+        shadow(color: (tint ?? .black).opacity(tint == nil ? 0.05 : 0.18), radius: 14, x: 0, y: 4)
+    }
 
     /// iOS 26 Liquid Glass on a shape, with a frosted-material fallback for iOS 17–25.
     /// The one place floating chrome (badges over photos, camera read-outs) gets its
@@ -246,5 +321,124 @@ struct IconBadge: View {
             .foregroundStyle(tint)
             .frame(width: size, height: size)
             .background(tint.opacity(0.12), in: Circle())
+    }
+}
+
+/// The house icon treatment: an SF Symbol reversed out of a filled gradient
+/// squircle. Wherever an icon carries meaning (a care domain, a stat) this replaces
+/// the flat tinted circle — a solid color block survives being shrunk to a
+/// thumbnail, a 12-percent-alpha glyph does not.
+struct GlyphTile: View {
+    let systemImage: String
+    let tone: Theme.Tone
+    var size: CGFloat = 44
+
+    var body: some View {
+        Image(systemName: systemImage)
+            .font(.system(size: size * 0.42, weight: .semibold))
+            .foregroundStyle(.white)
+            .frame(width: size, height: size)
+            .background(
+                tone.gradient,
+                in: RoundedRectangle(cornerRadius: size * 0.32, style: .continuous))
+    }
+}
+
+/// A headline figure on a filled gradient block, with its own symbol as a watermark.
+/// Used for the counters that carry a screen's story (streak, trees).
+struct StatTile: View {
+    let systemImage: String
+    let value: String
+    let label: String
+    let tone: Theme.Tone
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(value)
+                .font(.system(size: 34, weight: .heavy, design: .rounded).monospacedDigit())
+                .foregroundStyle(.white)
+                .contentTransition(.numericText())
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+            Text(label)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.white.opacity(0.88))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, Theme.Space.l)
+        .padding(.vertical, Theme.Space.m)
+        .background {
+            ZStack(alignment: .trailing) {
+                tone.gradient
+                Image(systemName: systemImage)
+                    .font(.system(size: 84))
+                    .foregroundStyle(.white.opacity(0.16))
+                    .rotationEffect(.degrees(-8))
+                    .offset(x: 20)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
+        .elevated(tint: tone.tint)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(value) \(label)")
+    }
+}
+
+/// The one due-status pill: amber when late, leaf when due today, quiet grey when
+/// it is still ahead. Every surface that answers "when?" uses this, so the same
+/// state never appears in two different shapes.
+struct DueStatusPill: View {
+    /// Days until due: negative is overdue, 0 is today.
+    let days: Int
+
+    private var content: (text: String, tint: Color, solid: Bool) {
+        if days < 0 { return ("\(-days)d late", Theme.Color.warning, true) }
+        if days == 0 { return ("Today", Theme.Color.leaf, false) }
+        return ("in \(days)d", Theme.Color.textSecondary, false)
+    }
+
+    var body: some View {
+        let style = content
+        Text(style.text)
+            .font(.caption.weight(.bold))
+            .monospacedDigit()
+            .lineLimit(1)
+            // A status pill is one line or it is not a pill — never let a narrow
+            // row wrap it into "To-/day".
+            .fixedSize(horizontal: true, vertical: false)
+            .foregroundStyle(style.solid ? Theme.Color.onWarning : style.tint)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(style.solid ? style.tint : style.tint.opacity(0.14), in: Capsule())
+    }
+}
+
+/// The repeated "I did it" affordance: a filled gradient check with a 44pt target.
+/// One shape for the whole app, so completing care always looks the same.
+struct CompleteCareButton: View {
+    var tone: Theme.Tone = .leaf
+    var isBusy = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            ZStack {
+                Circle().fill(tone.gradient)
+                if isBusy {
+                    ProgressView().tint(.white)
+                } else {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 16, weight: .heavy))
+                        .foregroundStyle(.white)
+                }
+            }
+            .frame(width: 36, height: 36)
+            .frame(width: 44, height: 44) // 44pt tap target around a 36pt dot
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .disabled(isBusy)
     }
 }

@@ -391,7 +391,7 @@ struct OnboardingView: View {
         var rows: [PlanBuildView.Row] = []
         rows.append(.init(icon: "leaf.fill", text: collectionLine))
         rows.append(.init(icon: "sun.max.fill", text: lightLine.title))
-        rows.append(.init(icon: "target", text: struggleLine.title))
+        rows.append(.init(icon: struggleLine.icon, text: struggleLine.title))
         rows.append(.init(icon: "bell.fill", text: paceLine.title))
         rows.append(.init(icon: "pawprint.fill",
                           text: petsAnswer == true ? "Pet-safety alerts switched on"
@@ -399,19 +399,25 @@ struct OnboardingView: View {
         return rows
     }
 
-    /// Biggest-struggle → the plan line that leans straight into it.
-    private var struggleLine: (title: String, detail: String) {
+    /// Biggest-struggle → the plan line that leans straight into it, with the glyph
+    /// that names the problem (a generic bullseye reads as a camera lens).
+    private var struggleLine: (icon: String, tone: Theme.Tone, title: String, detail: String) {
         switch answers["struggle"] {
         case "overwater":
-            return ("Overwater-proof watering", "We space watering out and warn before you pour")
+            return ("drop.fill", .water, "Overwater-proof watering",
+                    "We space watering out and warn before you pour")
         case "forget":
-            return ("Reminders that reach you", "Nudges timed so a watering never slips")
+            return ("alarm.fill", .forest, "Reminders that reach you",
+                    "Nudges timed so a watering never slips")
         case "pests":
-            return ("Early pest & disease checks", "Diagnose trouble from a photo before it spreads")
+            return ("ladybug.fill", .ember, "Early pest & disease checks",
+                    "Diagnose trouble from a photo before it spreads")
         case "light":
-            return ("Light-first placement", "We flag when a plant needs a brighter spot")
+            return ("lightbulb.fill", .sun, "Light-first placement",
+                    "We flag when a plant needs a brighter spot")
         default:
-            return ("Aimed at your weak spot", "Your plan leans into what trips you up")
+            return ("target", .forest, "Aimed at your weak spot",
+                    "Your plan leans into what trips you up")
         }
     }
 
@@ -428,6 +434,17 @@ struct OnboardingView: View {
             return ("Balanced for mixed light", "Placement tips room by room")
         default:
             return ("Matched to your light", "Placement tips for your space")
+        }
+    }
+
+    /// The pacing sentence under `collectionLine` on the reveal card.
+    private var collectionDetail: String {
+        switch answers["plantCount"] {
+        case "none": return "We start slow and build as you add more"
+        case "1_5": return "A light routine that won't take over your week"
+        case "6_10": return "Enough structure to keep a full shelf on track"
+        case "11_25", "25_plus": return "Built to keep a big collection from slipping"
+        default: return "Care paced to how much you keep"
         }
     }
 
@@ -461,54 +478,38 @@ struct OnboardingView: View {
     private var planRevealHero: some View {
         VStack(alignment: .leading, spacing: Theme.Space.l) {
             VStack(alignment: .leading, spacing: Theme.Space.s) {
-                Text("Your care plan is ready 🌱")
-                    .font(.title.weight(.bold))
-                Text("Built from your answers — tuned to your home, your plants, and what trips you up.")
+                Text("Your care plan is ready")
+                    .font(.largeTitle.weight(.bold))
+                Text("Built from your answers. Tuned to your home, your plants, "
+                     + "and what trips you up.")
                     .font(.subheadline)
                     .foregroundStyle(Theme.Color.textSecondary)
             }
 
-            // Their numbers: the quiz turned into a plan at a glance.
-            HStack(spacing: Theme.Space.s) {
-                revealStat(icon: "leaf.fill", value: collectionStat, label: "your plants")
-                revealStat(icon: "drop.fill", value: "Smart", label: "watering")
-                revealStat(icon: "calendar", value: "30 days", label: "mapped out")
-            }
+            // Their numbers, on the house strip the Trees tab uses for its own
+            // headline figures — the quiz turned into a plan at a glance.
+            HeroStatStrip(stats: [
+                .init(value: collectionStat, label: "your plants"),
+                .init(value: "\(revealRows.count)", label: "care rules"),
+                .init(value: "30", label: "days planned"),
+            ])
 
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: Theme.Space.s) {
-                    Image(systemName: "leaf.fill")
-                        .font(.footnote)
-                        .foregroundStyle(Theme.Color.leafDeep)
+                    GlyphTile(systemImage: "house.fill", tone: .leaf, size: 26)
                     Text("Made for your home")
                         .font(.subheadline.weight(.bold))
                         .foregroundStyle(Theme.Color.leafDeep)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(Theme.Space.l)
-                .background(Theme.Color.leaf.opacity(0.08))
+                .background(Theme.Color.leaf.opacity(0.10))
 
                 VStack(spacing: 0) {
-                    planRow(icon: "drop.fill", tint: Theme.Color.leaf,
-                            title: "Conservative watering windows",
-                            detail: "Overwatering is the #1 plant killer, so we water less often")
-                    Divider().overlay(Theme.Color.separator)
-                    planRow(icon: "sun.max.fill", tint: Theme.Color.warning,
-                            title: lightLine.title, detail: lightLine.detail)
-                    Divider().overlay(Theme.Color.separator)
-                    planRow(icon: "target", tint: Theme.Color.leafDeep,
-                            title: struggleLine.title, detail: struggleLine.detail)
-                    Divider().overlay(Theme.Color.separator)
-                    planRow(icon: petsAnswer == true ? "pawprint.fill" : "shield.fill",
-                            tint: Theme.Color.terracotta,
-                            title: petsAnswer == true ? "Pet-safety alerts on every scan"
-                                                      : "Toxicity flags on every scan",
-                            detail: petsAnswer == true
-                                ? "Toxic plants called out before they come home"
-                                : "Know what's safe before it comes home")
-                    Divider().overlay(Theme.Color.separator)
-                    planRow(icon: "bell.fill", tint: Theme.Color.leaf,
-                            title: paceLine.title, detail: paceLine.detail)
+                    ForEach(Array(revealRows.enumerated()), id: \.element.id) { index, row in
+                        if index > 0 { Divider().overlay(Theme.Color.separator) }
+                        planRow(row)
+                    }
                 }
                 .padding(.horizontal, Theme.Space.l)
             }
@@ -523,28 +524,44 @@ struct OnboardingView: View {
         .onAppear { askForReviewIfNeeded() }
     }
 
-    /// The compact stat tile in the reveal's "their numbers" row.
-    private func revealStat(icon: String, value: String, label: String) -> some View {
-        VStack(spacing: 3) {
-            Image(systemName: icon)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(Theme.Color.leaf)
-            Text(value)
-                .font(.subheadline.weight(.bold))
-                .foregroundStyle(Theme.Color.textPrimary)
-                .monospacedDigit()
-            Text(label)
-                .font(.caption2)
-                .foregroundStyle(Theme.Color.textSecondary)
+    /// One tailored promise in the reveal card.
+    private struct RevealRow: Identifiable {
+        let id = UUID()
+        let icon: String
+        let tone: Theme.Tone
+        let title: String
+        let detail: String
+    }
+
+    /// The reveal's rows, built once so the "care rules" figure above the card
+    /// counts the rules actually printed on it.
+    private var revealRows: [RevealRow] {
+        var rows: [RevealRow] = []
+        rows.append(.init(icon: "leaf.fill", tone: .leaf,
+                          title: collectionLine, detail: collectionDetail))
+        // The standing conservative-watering promise, unless the user's own
+        // weak spot is overwatering — then the tailored row below says the same
+        // thing better, and printing both reads like padding.
+        if answers["struggle"] != "overwater" {
+            rows.append(.init(
+                icon: "drop.fill", tone: .water,
+                title: "Conservative watering windows",
+                detail: "Overwatering is the #1 plant killer, so we water less often"))
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, Theme.Space.m)
-        .background(Theme.Color.surface,
-                    in: RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous)
-                .strokeBorder(Theme.Color.separator.opacity(0.7), lineWidth: 1)
-        )
+        rows.append(.init(icon: "sun.max.fill", tone: .sun,
+                          title: lightLine.title, detail: lightLine.detail))
+        rows.append(.init(icon: struggleLine.icon, tone: struggleLine.tone,
+                          title: struggleLine.title, detail: struggleLine.detail))
+        rows.append(.init(
+            icon: petsAnswer == true ? "pawprint.fill" : "shield.fill", tone: .ember,
+            title: petsAnswer == true ? "Pet-safety alerts on every scan"
+                                      : "Toxicity flags on every scan",
+            detail: petsAnswer == true
+                ? "Toxic plants called out before they come home"
+                : "Know what's safe before it comes home"))
+        rows.append(.init(icon: "bell.fill", tone: .leaf,
+                          title: paceLine.title, detail: paceLine.detail))
+        return rows
     }
 
     /// Short collection value for the reveal's stat row.
@@ -598,20 +615,16 @@ struct OnboardingView: View {
         }
     }
 
-    private func planRow(icon: String, tint: Color, title: String, detail: String) -> some View {
+    private func planRow(_ row: RevealRow) -> some View {
         HStack(spacing: Theme.Space.m) {
-            Image(systemName: icon)
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(tint)
-                .frame(width: 30, height: 30)
-                .background(tint.opacity(0.12), in: Circle())
-            VStack(alignment: .leading, spacing: 1) {
-                Text(title).font(.subheadline.weight(.semibold))
-                Text(detail).font(.caption).foregroundStyle(Theme.Color.textSecondary)
+            GlyphTile(systemImage: row.icon, tone: row.tone, size: 36)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(row.title).font(.subheadline.weight(.semibold))
+                Text(row.detail).font(.footnote).foregroundStyle(Theme.Color.textSecondary)
             }
             Spacer(minLength: 0)
         }
-        .padding(.vertical, Theme.Space.m)
+        .padding(.vertical, 14)
     }
 
     // MARK: Footer (Continue on the hook, plan chips during the quiz, auth at the end)
@@ -629,8 +642,13 @@ struct OnboardingView: View {
         } else if page <= questions.count || page == petsPage {
             planSoFarStrip
         } else if page == revealPage {
-            Button("Save my plan") { goNext() }
-                .buttonStyle(.primary)
+            VStack(spacing: Theme.Space.m) {
+                Button("Save my plan") { goNext() }
+                    .buttonStyle(.primary)
+                Text("Free to start · No credit card")
+                    .font(.caption2)
+                    .foregroundStyle(Theme.Color.textSecondary)
+            }
         } else if page == authPage {
             authButtons
         }

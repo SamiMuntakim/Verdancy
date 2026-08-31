@@ -13,15 +13,20 @@ struct TodayView: View {
     var body: some View {
         @Bindable var app = app
         NavigationStack {
+            let due = app.garden.dueItems
             List {
                 Section {
-                    GreetingHeader(trees: totalTrees, streak: app.streak.current)
+                    GreetingHeader(
+                        trees: totalTrees,
+                        streak: app.streak.current,
+                        // Two tasks on one plant is still one plant asking for you,
+                        // so the line counts plants, not rows.
+                        plantsDue: Set(due.map(\.plant.plantId)).count)
                 }
                 .listRowInsets(EdgeInsets())
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
 
-                let due = app.garden.dueItems
                 if due.isEmpty {
                     Section {
                         TodayEmptyState(hasPlants: !app.garden.plants.isEmpty) {
@@ -31,7 +36,7 @@ struct TodayView: View {
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
                 } else {
-                    Section("Due now") {
+                    Section {
                         ForEach(due) { item in
                             DueRow(item: item) {
                                 Task {
@@ -39,6 +44,13 @@ struct TodayView: View {
                                     Haptics.success()
                                 }
                             }
+                                // Each task is its own card rather than a row in one
+                                // grouped slab: the plant's photo is the point, and a
+                                // divider list buries it.
+                                .listRowInsets(EdgeInsets(top: 5, leading: Theme.Space.l,
+                                                          bottom: 5, trailing: Theme.Space.l))
+                                .listRowBackground(Color.clear)
+                                .listRowSeparator(.hidden)
                                 .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                                     Button {
                                         Task {
@@ -56,10 +68,16 @@ struct TodayView: View {
                                     .tint(Theme.Color.terracotta)
                                 }
                         }
+                    } header: {
+                        SectionHeading(title: "Due now", count: due.count)
                     }
                 }
             }
             .listStyle(.insetGrouped)
+            .listSectionSpacing(Theme.Space.s)
+            // The greeting is the header; the grouped list's own top inset would
+            // add ~35pt of nothing between it and the status bar.
+            .contentMargins(.top, 0, for: .scrollContent)
             .scrollContentBackground(.hidden)
             .background(Theme.Color.background)
             // The greeting header IS this screen's title — a large nav title above
@@ -88,6 +106,7 @@ struct TodayView: View {
 struct GreetingHeader: View {
     let trees: Int
     let streak: Int
+    let plantsDue: Int
 
     private var greeting: String {
         switch Calendar.current.component(.hour, from: Date()) {
@@ -98,8 +117,17 @@ struct GreetingHeader: View {
         }
     }
 
+    /// One plain sentence answering "why am I here?" before the list does.
+    private var subtitle: String {
+        switch plantsDue {
+        case 0: return "Nothing needs you right now."
+        case 1: return "1 plant needs you today."
+        default: return "\(plantsDue) plants need you today."
+        }
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: Theme.Space.m) {
+        VStack(alignment: .leading, spacing: Theme.Space.l) {
             VStack(alignment: .leading, spacing: Theme.Space.xs) {
                 Text(Date.now.formatted(.dateTime.weekday(.wide).month(.wide).day()))
                     .font(.caption.weight(.semibold))
@@ -109,39 +137,50 @@ struct GreetingHeader: View {
                 Text(greeting)
                     .font(.largeTitle.weight(.bold))
                     .foregroundStyle(Theme.Color.textPrimary)
+                Text(subtitle)
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.Color.textSecondary)
             }
+            // The two numbers worth coming back for, as filled color blocks: they
+            // have to survive being shrunk to an App Store thumbnail.
             HStack(spacing: Theme.Space.m) {
-                StatChip(icon: "flame.fill", tint: Theme.Color.terracotta,
-                         value: "\(streak)", label: "day streak")
-                StatChip(icon: "tree.fill", tint: Theme.Color.leaf,
-                         value: "\(trees)", label: "trees")
+                StatTile(systemImage: "flame.fill", value: "\(streak)",
+                         label: "day streak", tone: .ember)
+                StatTile(systemImage: "tree.fill", value: "\(trees)",
+                         label: trees == 1 ? "real tree" : "real trees", tone: .leaf)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, Theme.Space.l)
-        .padding(.vertical, Theme.Space.s)
+        .padding(.top, Theme.Space.xs)
+        .padding(.bottom, Theme.Space.m)
     }
 }
 
-struct StatChip: View {
-    let icon: String
-    let tint: Color
-    let value: String
-    let label: String
+/// A list section title that also carries its count, so "Due now" answers "how
+/// many?" without a second glance.
+struct SectionHeading: View {
+    let title: String
+    var count: Int?
 
     var body: some View {
         HStack(spacing: Theme.Space.s) {
-            Image(systemName: icon)
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(tint)
-                .frame(width: 26, height: 26)
-                .background(tint.opacity(0.12), in: Circle())
-            Text(value).fontWeight(.bold).monospacedDigit()
-            Text(label).font(.caption).foregroundStyle(Theme.Color.textSecondary)
+            Text(title)
+                .font(.title3.weight(.bold))
+                .foregroundStyle(Theme.Color.textPrimary)
+            if let count {
+                Text("\(count)")
+                    .font(.caption.weight(.bold))
+                    .monospacedDigit()
+                    .foregroundStyle(Theme.Color.leaf)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Theme.Color.leaf.opacity(0.14), in: Capsule())
+            }
+            Spacer()
         }
-        .padding(.horizontal, Theme.Space.m)
-        .padding(.vertical, Theme.Space.s)
-        .card()
+        .textCase(nil)
+        .padding(.bottom, Theme.Space.xs)
     }
 }
 
@@ -149,38 +188,50 @@ struct DueRow: View {
     let item: DueItem
     let onComplete: () -> Void
 
-    private var isOverdue: Bool { item.overdueDays > 0 }
+    private var tone: Theme.Tone { item.type.tone }
 
     var body: some View {
         HStack(spacing: Theme.Space.m) {
+            // The photo, with the task riding its corner: which plant and which
+            // job, read as one object instead of a thumbnail beside a caption.
             CachedAsyncImage(imageRef: item.plant.imageRef, downloadURL: item.plant.downloadUrl)
-                .frame(width: 52, height: 52)
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .frame(width: 68, height: 68)
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .overlay(alignment: .bottomTrailing) {
+                    Image(systemName: item.type.systemImage)
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 24, height: 24)
+                        .background(tone.gradient, in: Circle())
+                        .overlay(Circle().strokeBorder(Theme.Color.surface, lineWidth: 2))
+                        .offset(x: 6, y: 4)
+                }
             VStack(alignment: .leading, spacing: 3) {
-                Text(item.plant.displayName).fontWeight(.semibold)
-                Label(item.type.title, systemImage: item.type.systemImage)
-                    .font(.caption).foregroundStyle(Theme.Color.textSecondary)
+                Text(item.plant.displayName)
+                    .font(.headline)
+                    .foregroundStyle(Theme.Color.textPrimary)
+                    .lineLimit(1)
+                Text(item.type.title)
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.Color.textSecondary)
             }
-            Spacer()
-            Text(isOverdue ? "\(item.overdueDays)d late" : "Today")
-                .font(.caption.weight(.semibold))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(
-                    (isOverdue ? Theme.Color.warning : Theme.Color.leaf).opacity(0.14),
-                    in: Capsule()
-                )
-                .foregroundStyle(isOverdue ? Theme.Color.warning : Theme.Color.leaf)
-            // The visible completion path — the swipe stays as the power gesture.
-            Button(action: onComplete) {
-                Image(systemName: "checkmark.circle")
-                    .font(.title2.weight(.medium))
-                    .foregroundStyle(Theme.Color.leaf)
+            .layoutPriority(1) // the plant's name never loses width to the pill
+            Spacer(minLength: Theme.Space.s)
+            HStack(spacing: Theme.Space.xs) {
+                // Every row in "Due now" is due today, so only being *late* is
+                // news. A "Today" pill on every row is chrome, not information.
+                if item.overdueDays > 0 {
+                    DueStatusPill(days: -item.overdueDays)
+                }
+                // The visible completion path — the swipe stays as the power gesture.
+                CompleteCareButton(tone: tone, action: onComplete)
+                    .accessibilityLabel("Mark \(item.type.title.lowercased()) done")
             }
-            .buttonStyle(.borderless)
-            .accessibilityLabel("Mark \(item.type.title.lowercased()) done")
         }
-        .padding(.vertical, 4)
+        .padding(.leading, Theme.Space.m)
+        .padding(.trailing, Theme.Space.s)
+        .padding(.vertical, 14)
+        .card()
     }
 }
 

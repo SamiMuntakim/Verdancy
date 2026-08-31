@@ -203,7 +203,7 @@ extension CarePlan {
         light: LightPlan(summary: "Bright, indirect",
                          instruction: "Place it less than 6 feet from a south-facing window to ensure it receives enough light to thrive."),
         nutrients: NutrientsPlan(fertilizeCadenceDays: 30,
-                                 instruction: "To replenish this plant's nutrients, repot after it doubles in size or once a year, whichever comes first."))
+                                 instruction: "A balanced liquid feed at half strength through spring and summer. Skip it in winter."))
 }
 
 extension DiagnosisCard {
