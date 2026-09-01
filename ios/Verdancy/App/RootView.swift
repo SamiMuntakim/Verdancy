@@ -1,6 +1,41 @@
 import SwiftUI
 import StoreKit
 
+/// Gate for Apple's native rating prompt (App Store Review Guideline 5.6.3): a
+/// rating may never be requested on first launch or during onboarding — only
+/// after the user has genuinely engaged. We therefore allow the prompt at most
+/// once, and only after the app has been installed for a few days. That install
+/// age structurally rules out the first-launch and the day-0 first-run flow
+/// (where an annual purchase can fire a bloom/trees celebration seconds after
+/// onboarding), so a delight moment routed through here can never ask too early.
+/// The system additionally rate-limits whether the dialog actually shows.
+enum ReviewGate {
+    private static let firstLaunchKey = "verdancy.review.firstLaunch"
+    private static let promptedKey = "verdancy.review.prompted"
+    /// Real engagement must accrue before we ask — never day-0 onboarding.
+    private static let minInstallAge: TimeInterval = 3 * 24 * 60 * 60
+
+    /// Record the first real launch, once. Safe to call on every launch.
+    static func registerLaunch() {
+        let defaults = UserDefaults.standard
+        if defaults.object(forKey: firstLaunchKey) == nil {
+            defaults.set(Date(), forKey: firstLaunchKey)
+        }
+    }
+
+    /// True when a peak-delight moment may ask for a review: installed long
+    /// enough to exclude first launch / onboarding, and not already asked.
+    /// Marks the request so the prompt is only ever requested once.
+    static func consume() -> Bool {
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: promptedKey) else { return false }
+        let first = defaults.object(forKey: firstLaunchKey) as? Date ?? Date()
+        guard Date().timeIntervalSince(first) >= minInstallAge else { return false }
+        defaults.set(true, forKey: promptedKey)
+        return true
+    }
+}
+
 /// Auth gate: launch → sign-in → the tab bar.
 struct RootView: View {
     @Environment(AppModel.self) private var app
@@ -28,16 +63,19 @@ struct RootView: View {
                 app.pendingBloom = false
                 // If this bloom capped the first-run flow, leave it for the tab bar.
                 app.completeFirstRun()
-                // Peak-delight moment; the system throttles how often it shows.
-                requestReview()
+                // Peak-delight moment — but only once the user is past onboarding
+                // and has engaged for a few days (Guideline 5.6.3); the system
+                // additionally throttles how often it shows.
+                if ReviewGate.consume() { requestReview() }
             }
         }
         .fullScreenCover(item: $app.pendingTreesPlanted) { celebration in
             // The Day-7 moment: the annual grant's trees just went in the ground.
             TreesPlantedCelebrationView(celebration: celebration) {
                 app.pendingTreesPlanted = nil
-                // Money moved and trees landed — another peak, system-throttled.
-                requestReview()
+                // Money moved and trees landed — another peak, gated so it never
+                // fires during onboarding/first-run (Guideline 5.6.3).
+                if ReviewGate.consume() { requestReview() }
             }
         }
         .overlay(alignment: .top) {

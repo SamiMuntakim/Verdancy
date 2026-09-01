@@ -1,4 +1,3 @@
-import StoreKit
 import SwiftUI
 
 /// Dedicated onboarding flow (iOS-PRD §8.1): one show-the-aha hook screen → a short
@@ -51,12 +50,6 @@ enum OnboardingProfile {
         get { UserDefaults.standard.string(forKey: "verdancy.onboarding.struggle") }
         set { UserDefaults.standard.set(newValue, forKey: "verdancy.onboarding.struggle") }
     }
-
-    /// One-shot guard so the App Store rating prompt is only ever requested once.
-    static var reviewPrompted: Bool {
-        get { UserDefaults.standard.bool(forKey: "verdancy.onboarding.reviewPrompted") }
-        set { UserDefaults.standard.set(newValue, forKey: "verdancy.onboarding.reviewPrompted") }
-    }
 }
 
 /// One selectable choice inside a quiz question.
@@ -79,7 +72,6 @@ private struct QuizQuestion: Identifiable {
 
 struct OnboardingView: View {
     @Environment(AppModel.self) private var app
-    @Environment(\.requestReview) private var requestReview
     @State private var page = 0
     @State private var forward = true
     @State private var isWorking = false
@@ -188,7 +180,6 @@ struct OnboardingView: View {
                            "light": "medium", "struggle": "overwater"]
                 petsAnswer = true
                 PetContext.hasPets = true
-                OnboardingProfile.reviewPrompted = true // don't pop the rating dialog mid-capture
                 page = revealPage
                 Analytics.log("onboarding_viewed")
                 return
@@ -521,7 +512,7 @@ struct OnboardingView: View {
             )
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .onAppear { askForReviewIfNeeded() }
+        .onAppear { Analytics.log("plan_revealed") }
     }
 
     /// One tailored promise in the reveal card.
@@ -599,20 +590,6 @@ struct OnboardingView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    /// Apple's native rating prompt, fired once at the reveal's peak delight and just
-    /// before the paywall. Apple rate-limits and may silently no-op it, and we never
-    /// gate progress on it — it only seeds App Store social proof from happy users.
-    private func askForReviewIfNeeded() {
-        Analytics.log("plan_revealed")
-        guard !OnboardingProfile.reviewPrompted else { return }
-        OnboardingProfile.reviewPrompted = true
-        // Let the reveal land first, then ask.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
-            Analytics.log("review_prompted")
-            requestReview()
-        }
     }
 
     private func planRow(_ row: RevealRow) -> some View {

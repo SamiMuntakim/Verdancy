@@ -209,6 +209,9 @@ final class AppModel {
         #if DEBUG
         await ScreenshotSupport.seedImageCache() // mock-mode marketing captures only
         #endif
+        // Start the install-age clock that gates the App Store rating prompt away
+        // from first launch / onboarding (Guideline 5.6.3). Idempotent.
+        ReviewGate.registerLaunch()
         garden.hydrateFromSnapshot()
         await entitlement.bootstrap()
         if await auth.isSignedIn() {
