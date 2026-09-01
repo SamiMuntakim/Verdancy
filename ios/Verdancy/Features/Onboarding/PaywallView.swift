@@ -183,17 +183,25 @@ struct PaywallView: View {
 
     /// Apple Guideline 3.1.2 requires functional Terms of Use and Privacy Policy
     /// links on the subscription purchase screen itself — reviewers reject without
-    /// them. Same destinations as Settings.
+    /// them. Same destinations as Settings. The StoreKit sheet shows the full legal
+    /// boilerplate on tap; the brief auto-renew line above is belt-and-suspenders so
+    /// the ongoing charge is unmistakable to a reviewer without it.
     private var legalLinks: some View {
-        HStack(spacing: Theme.Space.l) {
-            Link("Terms of Service", destination: AppConfig.termsURL)
-            Rectangle()
-                .fill(Theme.Color.separator)
-                .frame(width: 1, height: 12)
-            Link("Privacy Policy", destination: AppConfig.privacyURL)
+        VStack(spacing: Theme.Space.xs) {
+            Text("Auto-renews until canceled. Cancel anytime.")
+                .font(.caption2)
+                .foregroundStyle(Theme.Color.textSecondary)
+            HStack(spacing: Theme.Space.l) {
+                Link("Terms of Service", destination: AppConfig.termsURL)
+                Rectangle()
+                    .fill(Theme.Color.separator)
+                    .frame(width: 1, height: 12)
+                Link("Privacy Policy", destination: AppConfig.privacyURL)
+            }
+            .font(.caption)
+            .foregroundStyle(Theme.Color.textSecondary)
         }
-        .font(.caption)
-        .foregroundStyle(Theme.Color.textSecondary)
+        .multilineTextAlignment(.center)
     }
 
     private func subscribe() async {
